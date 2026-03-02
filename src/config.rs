@@ -71,6 +71,8 @@ pub struct SecurityConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct SchedulerConfig {
     pub weekly_report_cron: String,
+    pub monthly_report_cron: String,
+    pub yearly_report_cron: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -151,7 +153,7 @@ impl Config {
                     .map_err(|_| anyhow::anyhow!("GEMINI_API_KEY is required"))?,
                 model: std::env
                     ::var("GEMINI_MODEL")
-                    .unwrap_or_else(|_| "gemini-2.5-pro-preview-05-06".into()),
+                    .unwrap_or_else(|_| "gemini-3-flash-preview".into()),
             },
             encryption: EncryptionConfig {
                 master_key: std::env
@@ -165,6 +167,12 @@ impl Config {
                 weekly_report_cron: std::env
                     ::var("WEEKLY_REPORT_CRON")
                     .unwrap_or_else(|_| "0 0 9 * * Mon".into()),
+                monthly_report_cron: std::env
+                    ::var("MONTHLY_REPORT_CRON")
+                    .unwrap_or_else(|_| "0 0 9 1 * *".into()),
+                yearly_report_cron: std::env
+                    ::var("YEARLY_REPORT_CRON")
+                    .unwrap_or_else(|_| "0 0 9 1 1 *".into()),
             },
             docs: DocsConfig {
                 password: std::env

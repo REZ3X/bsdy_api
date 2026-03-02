@@ -87,7 +87,7 @@ impl EmailService {
 <body>
 <div class="wrap">
   <div class="card">
-    <h1>Welcome to {app} 🧠</h1>
+    <h1>Welcome to {app}</h1>
     <p>Hi <strong>{name}</strong>,</p>
     <p>Thank you for joining us. Click the button below to verify your email and activate your account.</p>
     <div style="text-align:center">
@@ -135,10 +135,10 @@ impl EmailService {
         avg_mood: Option<f32>,
         risk_level: &str
     ) -> Result<()> {
-        let trend_emoji = match mood_trend {
-            "improving" => "📈",
-            "declining" => "📉",
-            _ => "➡️",
+        let trend_label = match mood_trend {
+            "improving" => "&#9650;",
+            "declining" => "&#9660;",
+            _ => "&#8594;",
         };
 
         let risk_color = match risk_level {
@@ -183,20 +183,20 @@ impl EmailService {
 <body>
 <div class="wrap">
 <div class="card">
-  <h1>🧠 Your {rtype} Mental Health Report</h1>
+  <h1>Your {rtype} Mental Health Report</h1>
   <p style="color:#6b7280;font-size:14px">{start} – {end} &nbsp;|&nbsp; <strong>{name}</strong></p>
 
   {mood_block}
 
   <div style="display:flex;gap:12px;flex-wrap:wrap;margin:16px 0">
-    <span class="badge" style="background:#ede9fe;color:#6d28d9">{trend_emoji} Mood {trend}</span>
+    <span class="badge" style="background:#ede9fe;color:#6d28d9">{trend_label} Mood {trend}</span>
     <span class="badge" style="background:#fee2e2;color:{risk_color}">{risk} Risk</span>
   </div>
 
-  <h2>📝 Summary</h2>
+  <h2>Summary</h2>
   <div class="section"><p style="margin:0">{summary}</p></div>
 
-  <h2>💡 Recommendations</h2>
+  <h2>Recommendations</h2>
   <div class="section"><p style="margin:0">{recs}</p></div>
 
   <hr style="border:none;border-top:1px solid #eee;margin:28px 0"/>
@@ -213,7 +213,7 @@ impl EmailService {
             start = period_start,
             end = period_end,
             mood_block = mood_block,
-            trend_emoji = trend_emoji,
+            trend_label = trend_label,
             trend = mood_trend,
             risk_color = risk_color,
             risk = risk_level,
@@ -253,15 +253,15 @@ impl EmailService {
 </style></head>
 <body>
 <div class="wrap"><div class="card">
-  <h1>❤️ We Care About You, {name}</h1>
+  <h1>We Care About You, {name}</h1>
   <p>We've noticed some patterns in your recent check-ins that suggest you may be going through a really difficult time.</p>
   <p>You are not alone. Please reach out to a mental health professional or crisis support line:</p>
   <div class="hotline">
-    <strong>🇮🇩 Into The Light Indonesia:</strong> 119 ext 8<br/>
-    <strong>🌏 International Association for Suicide Prevention:</strong> <a href="https://www.iasp.info/resources/Crisis_Centres/">Find a crisis center</a>
+    <strong>Into The Light Indonesia:</strong> 119 ext 8<br/>
+    <strong>International Association for Suicide Prevention:</strong> <a href="https://www.iasp.info/resources/Crisis_Centres/">Find a crisis center</a>
   </div>
   <p>Our AI companion is here to listen, but for severe distress, please reach out to a qualified human professional immediately.</p>
-  <p>Take care of yourself. 💜</p>
+  <p>Take care of yourself.</p>
 </div>
 <div class="footer">&copy; 2026 {app}. All rights reserved.</div>
 </div>
@@ -274,7 +274,7 @@ impl EmailService {
         let email = Message::builder()
             .from(format!("{} <{}>", self.from_name, self.from_email).parse().unwrap())
             .to(format!("{} <{}>", to_name, to_email).parse().unwrap())
-            .subject(format!("An important message from {} 💜", self.app_name))
+            .subject(format!("An important message from {}", self.app_name))
             .header(ContentType::TEXT_HTML)
             .body(html)
             .map_err(|e| AppError::InternalError(anyhow::anyhow!("Email build error: {}", e)))?;

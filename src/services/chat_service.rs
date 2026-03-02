@@ -444,13 +444,13 @@ impl ChatService {
             "crisis" | "severe" =>
                 r#"
 
-⚠️ CRITICAL: The user's message indicates they may be in crisis or severe distress.
+[CRITICAL] The user's message indicates they may be in crisis or severe distress.
 Your IMMEDIATE priorities are:
 1. Acknowledge their pain with deep empathy
 2. Ask if they are safe right now
 3. Provide crisis hotline numbers:
-   - 🇮🇩 Into The Light: 119 ext 8
-   - 🌏 International: https://www.iasp.info/resources/Crisis_Centres/
+   - Into The Light Indonesia: 119 ext 8
+   - International: https://www.iasp.info/resources/Crisis_Centres/
 4. Strongly encourage them to reach out to a qualified professional
 5. DO NOT try to be their therapist — you are a companion, not a replacement for professional help
 6. Stay present, warm, and non-judgmental
@@ -476,7 +476,7 @@ GUIDELINES:
 5. Suggest healthy coping strategies when appropriate (breathing exercises, journaling, movement)
 6. Encourage professional help when patterns suggest it would be beneficial
 7. Keep responses warm but concise (2-4 paragraphs max)
-8. Use occasional gentle emoji (💜, 🌱, ✨) but not excessively
+8. Keep a warm and gentle tone but not excessively
 9. If the user shares something positive, celebrate it with them
 10. Remember context from the conversation history
 {crisis}

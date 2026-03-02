@@ -18,7 +18,7 @@ use crate::{
 pub struct SchedulerService;
 
 impl SchedulerService {
-    /// Start the background scheduler that runs weekly report generation.
+    /// Start the background scheduler with weekly, monthly, and yearly report crons.
     pub async fn start(
         pool: MySqlPool,
         config: Arc<Config>,
@@ -28,45 +28,93 @@ impl SchedulerService {
     ) -> Result<JobScheduler> {
         let sched = JobScheduler::new().await.map_err(|e| AppError::InternalError(e.into()))?;
 
-        let cron_expr = config.scheduler.weekly_report_cron.clone();
-        tracing::info!("Registering weekly report cron: {}", cron_expr);
+        // ── Weekly ──────────────────────────────────────────
+        Self::register_job(
+            &sched,
+            &config.scheduler.weekly_report_cron,
+            "weekly",
+            pool.clone(),
+            crypto.clone(),
+            gemini.clone(),
+            email.clone()
+        ).await?;
 
-        let job = Job::new_async(cron_expr.as_str(), move |_uuid, _lock| {
+        // ── Monthly ─────────────────────────────────────────
+        Self::register_job(
+            &sched,
+            &config.scheduler.monthly_report_cron,
+            "monthly",
+            pool.clone(),
+            crypto.clone(),
+            gemini.clone(),
+            email.clone()
+        ).await?;
+
+        // ── Yearly ──────────────────────────────────────────
+        Self::register_job(
+            &sched,
+            &config.scheduler.yearly_report_cron,
+            "yearly",
+            pool.clone(),
+            crypto.clone(),
+            gemini.clone(),
+            email.clone()
+        ).await?;
+
+        sched.start().await.map_err(|e| AppError::InternalError(e.into()))?;
+
+        tracing::info!("Background scheduler started (weekly + monthly + yearly)");
+        Ok(sched)
+    }
+
+    async fn register_job(
+        sched: &JobScheduler,
+        cron_expr: &str,
+        report_type: &str,
+        pool: MySqlPool,
+        crypto: Arc<CryptoService>,
+        gemini: Arc<GeminiService>,
+        email: Arc<EmailService>
+    ) -> Result<()> {
+        let rtype = report_type.to_string();
+        let cron = cron_expr.to_string();
+        tracing::info!("Registering {} report cron: {}", rtype, cron);
+
+        let job = Job::new_async(cron.as_str(), move |_uuid, _lock| {
             let pool = pool.clone();
             let crypto = crypto.clone();
             let gemini = gemini.clone();
             let email = email.clone();
+            let rtype = rtype.clone();
 
             Box::pin(async move {
-                tracing::info!("Running scheduled weekly report generation");
+                tracing::info!("Running scheduled {} report generation", rtype);
 
                 if
-                    let Err(e) = Self::generate_weekly_reports(
+                    let Err(e) = Self::generate_reports_for_all(
                         &pool,
                         &crypto,
                         &gemini,
-                        &email
+                        &email,
+                        &rtype
                     ).await
                 {
-                    tracing::error!("Scheduled report generation failed: {:?}", e);
+                    tracing::error!("Scheduled {} report generation failed: {:?}", rtype, e);
                 }
             })
         }).map_err(|e| AppError::InternalError(e.into()))?;
 
         sched.add(job).await.map_err(|e| AppError::InternalError(e.into()))?;
-
-        sched.start().await.map_err(|e| AppError::InternalError(e.into()))?;
-
-        tracing::info!("Background scheduler started");
-        Ok(sched)
+        Ok(())
     }
 
-    /// Generate weekly reports for all eligible users (verified + onboarded).
-    async fn generate_weekly_reports(
+    /// Generate reports of a given type for all eligible users (verified + onboarded).
+    async fn generate_reports_for_all(
         pool: &MySqlPool,
         crypto: &CryptoService,
         gemini: &GeminiService,
-        email: &EmailService
+        email: &EmailService,
+        report_type: &str
     ) -> Result<()> {
         // Find users who are verified and have completed onboarding
         let users: Vec<(String, String, String, String)> = sqlx
@@ -82,14 +130,14 @@ impl SchedulerService {
             .fetch_all(pool).await
             .map_err(AppError::DatabaseError)?;
 
-        tracing::info!("Found {} eligible users for weekly reports", users.len());
+        tracing::info!("Found {} eligible users for {} reports", users.len(), report_type);
 
         let mut success_count = 0u32;
         let mut error_count = 0u32;
 
         for (user_id, user_name, user_email, encryption_salt) in &users {
             let req = GenerateReportRequest {
-                report_type: Some("weekly".to_string()),
+                report_type: Some(report_type.to_string()),
                 period_start: None,
                 period_end: None,
                 send_email: Some(true),
@@ -111,7 +159,8 @@ impl SchedulerService {
             {
                 Ok(report) => {
                     tracing::info!(
-                        "Weekly report generated for user {} (report: {})",
+                        "{} report generated for user {} (report: {})",
+                        report_type,
                         user_id,
                         report.id
                     );
@@ -119,7 +168,8 @@ impl SchedulerService {
                 }
                 Err(e) => {
                     tracing::error!(
-                        "Failed to generate weekly report for user {}: {:?}",
+                        "Failed to generate {} report for user {}: {:?}",
+                        report_type,
                         user_id,
                         e
                     );
@@ -130,6 +180,7 @@ impl SchedulerService {
 
         // Log the scheduled task result
         let task_id = uuid::Uuid::new_v4().to_string();
+        let task_type = format!("{}_report", report_type);
         let result_json =
             serde_json::json!({
             "total_users": users.len(),
@@ -139,16 +190,18 @@ impl SchedulerService {
 
         sqlx::query(
             r#"INSERT INTO scheduled_tasks (id, task_type, status, result, started_at, completed_at)
-               VALUES (?, 'weekly_report', ?, ?, NOW(), NOW())"#
+               VALUES (?, ?, ?, ?, NOW(), NOW())"#
         )
             .bind(&task_id)
+            .bind(&task_type)
             .bind(if error_count == 0 { "completed" } else { "partial" })
             .bind(result_json.to_string())
             .execute(pool).await
             .ok();
 
         tracing::info!(
-            "Weekly report generation complete: {} success, {} errors",
+            "{} report generation complete: {} success, {} errors",
+            report_type,
             success_count,
             error_count
         );

@@ -1,6 +1,6 @@
 [package]
 name = "bsdy_api"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Mental Companion & Tracker Platform API"
 
@@ -72,3 +72,11 @@ tokio-cron-scheduler = "0.11"
 
 # SSE streaming for chat
 async-stream = "0.3"
+
+[dev-dependencies]
+# Testing
+wiremock = "0.6"
+tokio-test = "0.4"
+tower = { version = "0.4", features = ["util"] }
+http-body-util = "0.1"
+axum-test = "16"

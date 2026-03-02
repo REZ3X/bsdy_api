@@ -1,4 +1,4 @@
-use chrono::{ Duration, Utc };
+use chrono::Utc;
 use jsonwebtoken::{ encode, EncodingKey, Header };
 use oauth2::{
     basic::BasicClient,
@@ -69,7 +69,7 @@ impl AuthService {
     pub async fn find_or_create_user(
         pool: &MySqlPool,
         google_user: &GoogleUserInfo,
-        crypto: &CryptoService
+        _crypto: &CryptoService
     ) -> Result<(UserRow, bool)> {
         // Try to find existing user
         let existing: Option<UserRow> = sqlx

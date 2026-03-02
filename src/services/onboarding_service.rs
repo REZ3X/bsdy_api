@@ -1,4 +1,3 @@
-use chrono::NaiveDate;
 use sqlx::MySqlPool;
 use uuid::Uuid;
 

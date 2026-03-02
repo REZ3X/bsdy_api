@@ -1,22 +1,13 @@
-mod config;
-mod crypto;
-mod db;
-mod error;
-mod middleware;
-mod models;
-mod routes;
-mod services;
-mod state;
-
 use std::net::SocketAddr;
 
 use axum::middleware as axum_mw;
 use tower_http::{ cors::{ Any, CorsLayer }, trace::TraceLayer };
 use tracing_subscriber::{ layer::SubscriberExt, util::SubscriberInitExt, EnvFilter };
 
-use crate::{
+use bsdy_api::{
     config::Config,
     crypto::CryptoService,
+    db,
     middleware::api_key::api_key_layer,
     routes::build_router,
     services::{ EmailService, GeminiService, SchedulerService },

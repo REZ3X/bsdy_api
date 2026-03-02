@@ -1,5 +1,32 @@
+# Build output
 /target
+
+# Environment (contains secrets)
 .env
+.env.local
+.env.*.local
+
+# Logs
 *.log
+
+# Certificates & keys
 *.pem
 *.key
+*.crt
+*.p12
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Backup files
+*.bak
+*.orig

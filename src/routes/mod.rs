@@ -7,6 +7,7 @@ pub mod note;
 pub mod chat;
 pub mod log;
 pub mod health;
+pub mod docs;
 
 use axum::Router;
 
@@ -24,4 +25,5 @@ pub fn build_router() -> Router<AppState> {
         .nest("/api/chats", chat::routes())
         .nest("/api/logs", log::routes())
         .merge(health::routes())
+        .merge(docs::routes())
 }

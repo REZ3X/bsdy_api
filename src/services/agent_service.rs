@@ -8,7 +8,6 @@ use crate::{
         AgentResponse,
         ChatMessageResponse,
         ChatMessageRow,
-        ChatResponse,
         ChatRow,
         SendMessageRequest,
         ToolCall,

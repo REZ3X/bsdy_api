@@ -123,7 +123,7 @@ impl NoteService {
         req: &UpdateNoteRequest
     ) -> Result<NoteResponse> {
         // Check existence
-        let existing: NoteRow = sqlx
+        let _existing: NoteRow = sqlx
             ::query_as("SELECT * FROM notes WHERE id = ? AND user_id = ?")
             .bind(note_id)
             .bind(user_id)

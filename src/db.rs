@@ -21,17 +21,28 @@ pub async fn run_migrations(pool: &MySqlPool) -> Result<(), anyhow::Error> {
 
     // Split by statement separator and execute each
     for statement in migration_sql.split(';') {
-        let trimmed = statement.trim();
-        if trimmed.is_empty() || trimmed.starts_with("--") || trimmed.starts_with("SET ") {
+        // Strip leading comment lines and whitespace to get the actual SQL
+        let cleaned: String = statement
+            .lines()
+            .filter(|line| {
+                let t = line.trim();
+                !t.is_empty() && !t.starts_with("--")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let cleaned = cleaned.trim();
+
+        if cleaned.is_empty() || cleaned.starts_with("SET ") {
             continue;
         }
-        sqlx::query(trimmed)
+
+        sqlx::query(cleaned)
             .execute(pool).await
             .map_err(|e| {
-                tracing::warn!("Migration statement skipped or failed (may already exist): {}", e);
+                tracing::warn!("Migration statement failed: {}", e);
                 e
             })
-            .ok();
+            .ok(); // IF NOT EXISTS handles duplicates; ok() tolerates "already exists"
     }
 
     tracing::info!("Database migrations completed");

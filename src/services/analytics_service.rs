@@ -51,7 +51,7 @@ impl AnalyticsService {
             ::to_string(
                 &mood_rows
                     .iter()
-                    .map(|(id, mood, energy, anxiety, stress)| {
+                    .map(|(_id, mood, energy, anxiety, stress)| {
                         serde_json::json!({
                 "mood_score": mood,
                 "energy_level": energy,

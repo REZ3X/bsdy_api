@@ -334,6 +334,7 @@ Be empathetic, evidence-based, and constructive. Do NOT diagnose. Return ONLY va
             }
             "monthly" => Ok((today - chrono::Duration::days(29), today)),
             "quarterly" => Ok((today - chrono::Duration::days(89), today)),
+            "yearly" => Ok((today - chrono::Duration::days(364), today)),
             _ => Ok((today - chrono::Duration::days(6), today)), // weekly default
         }
     }
