@@ -15,12 +15,24 @@ pub async fn create_pool(config: &DatabaseConfig) -> Result<MySqlPool, sqlx::Err
     Ok(pool)
 }
 
-/// Run SQL migration file against the pool.
+/// Run SQL migration files against the pool.
 pub async fn run_migrations(pool: &MySqlPool) -> Result<(), anyhow::Error> {
-    let migration_sql = include_str!("../migrations/001_initial_schema.sql");
+    let migrations: &[&str] = &[
+        include_str!("../migrations/001_initial_schema.sql"),
+        include_str!("../migrations/002_admin_content.sql"),
+    ];
 
-    // Split by statement separator and execute each
-    for statement in migration_sql.split(';') {
+    for migration_sql in migrations {
+        run_migration_sql(pool, migration_sql).await?;
+    }
+
+    tracing::info!("Database migrations completed");
+    Ok(())
+}
+
+/// Execute a single migration SQL string (split by `;`).
+async fn run_migration_sql(pool: &MySqlPool, sql: &str) -> Result<(), anyhow::Error> {
+    for statement in sql.split(';') {
         // Strip leading comment lines and whitespace to get the actual SQL
         let cleaned: String = statement
             .lines()
@@ -44,7 +56,5 @@ pub async fn run_migrations(pool: &MySqlPool) -> Result<(), anyhow::Error> {
             })
             .ok(); // IF NOT EXISTS handles duplicates; ok() tolerates "already exists"
     }
-
-    tracing::info!("Database migrations completed");
     Ok(())
 }

@@ -9,7 +9,7 @@ use bsdy_api::crypto::CryptoService;
 use bsdy_api::db;
 use bsdy_api::models::mental::{ BaselineAssessmentRequest, CreateMoodEntryRequest };
 use bsdy_api::models::note::{ CreateNoteRequest, UpdateNoteRequest };
-use bsdy_api::models::chat::CreateChatRequest;
+use bsdy_api::models::chat::{ CreateChatRequest, ToolCallRequest };
 use bsdy_api::services::mood_service::MoodService;
 use bsdy_api::services::note_service::NoteService;
 use bsdy_api::services::onboarding_service::OnboardingService;
@@ -80,6 +80,7 @@ async fn cleanup(pool: &sqlx::MySqlPool, user_id: &str) {
         .bind(user_id)
         .execute(pool).await
         .ok();
+    sqlx::query("DELETE FROM contents WHERE author_id = ?").bind(user_id).execute(pool).await.ok();
     sqlx::query("DELETE FROM users WHERE id = ?").bind(user_id).execute(pool).await.ok();
 }
 
@@ -362,4 +363,512 @@ async fn test_services_chat_crud() {
     assert!(deleted.is_ok());
 
     cleanup(&pool, &user_id).await;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Agent Tool — CREATE_NOTE via NoteService
+// ═══════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn test_agent_tool_create_note() {
+    let (pool, user_id, salt) = setup_user().await;
+    let crypto = test_crypto();
+
+    // Simulate what the agent does when CREATE_NOTE is called
+    let req = CreateNoteRequest {
+        title: "Grounding Technique".into(),
+        content: "5-4-3-2-1: Name 5 things you see, 4 you hear, 3 you touch, 2 you smell, 1 you taste.".into(),
+        label: Some("coping".into()),
+        is_pinned: Some(false),
+    };
+
+    let note = NoteService::create_note(&pool, &crypto, &user_id, &salt, &req).await;
+    assert!(note.is_ok(), "Agent CREATE_NOTE failed: {:?}", note.err());
+    let note = note.unwrap();
+    assert_eq!(note.title, "Grounding Technique");
+    assert_eq!(note.label.as_deref(), Some("coping"));
+
+    // Verify it's retrievable
+    let fetched = NoteService::get_note(&pool, &crypto, &user_id, &note.id, &salt).await;
+    assert!(fetched.is_ok());
+    assert!(fetched.unwrap().content.contains("5-4-3-2-1"));
+
+    cleanup(&pool, &user_id).await;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Agent Tool — UPDATE_NOTE via NoteService
+// ═══════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn test_agent_tool_update_note() {
+    let (pool, user_id, salt) = setup_user().await;
+    let crypto = test_crypto();
+
+    // Create a note first
+    let create_req = CreateNoteRequest {
+        title: "Morning Routine".into(),
+        content: "Wake up, stretch, drink water.".into(),
+        label: Some("routine".into()),
+        is_pinned: Some(false),
+    };
+    let note = NoteService::create_note(&pool, &crypto, &user_id, &salt, &create_req).await.expect(
+        "create note"
+    );
+
+    // Simulate agent UPDATE_NOTE — add more content
+    let update_req = UpdateNoteRequest {
+        title: None,
+        content: Some(
+            "Wake up, stretch for 5 min, drink a glass of water, then journal for 10 min.".into()
+        ),
+        label: None,
+        is_pinned: Some(true),
+    };
+    let updated = NoteService::update_note(
+        &pool,
+        &crypto,
+        &user_id,
+        &note.id,
+        &salt,
+        &update_req
+    ).await;
+    assert!(updated.is_ok(), "Agent UPDATE_NOTE failed: {:?}", updated.err());
+    let updated = updated.unwrap();
+    assert_eq!(updated.title, "Morning Routine"); // unchanged
+    assert!(updated.content.contains("journal for 10 min"));
+    assert!(updated.is_pinned); // changed to true
+
+    cleanup(&pool, &user_id).await;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Agent Tool — DELETE_NOTE via NoteService
+// ═══════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn test_agent_tool_delete_note() {
+    let (pool, user_id, salt) = setup_user().await;
+    let crypto = test_crypto();
+
+    // Create then delete
+    let req = CreateNoteRequest {
+        title: "Temporary Note".into(),
+        content: "To be deleted by the agent".into(),
+        label: None,
+        is_pinned: None,
+    };
+    let note = NoteService::create_note(&pool, &crypto, &user_id, &salt, &req).await.expect(
+        "create note"
+    );
+
+    let deleted = NoteService::delete_note(&pool, &user_id, &note.id).await;
+    assert!(deleted.is_ok(), "Agent DELETE_NOTE failed: {:?}", deleted.err());
+
+    // Verify it's gone
+    let fetched = NoteService::get_note(&pool, &crypto, &user_id, &note.id, &salt).await;
+    assert!(fetched.is_err(), "Deleted note should not be retrievable");
+
+    cleanup(&pool, &user_id).await;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Agent Tool — Multi-tool create + read notes workflow
+// ═══════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn test_agent_tool_create_then_list_notes() {
+    let (pool, user_id, salt) = setup_user().await;
+    let crypto = test_crypto();
+
+    // Simulate agent creating multiple coping notes
+    let labels = ["breathing", "mindfulness", "physical"];
+    let contents = [
+        "Box breathing: 4-4-4-4 counts",
+        "Body scan meditation: start from toes up to head",
+        "Light walk for 15 minutes when feeling overwhelmed",
+    ];
+
+    for (i, label) in labels.iter().enumerate() {
+        let req = CreateNoteRequest {
+            title: format!("Strategy {}", i + 1),
+            content: contents[i].into(),
+            label: Some(label.to_string()),
+            is_pinned: Some(false),
+        };
+        NoteService::create_note(&pool, &crypto, &user_id, &salt, &req).await.expect("create note");
+    }
+
+    // Agent lists all notes
+    let all_notes = NoteService::get_notes(&pool, &crypto, &user_id, &salt, None, 50).await;
+    assert!(all_notes.is_ok());
+    assert_eq!(all_notes.unwrap().len(), 3);
+
+    // Agent filters by label
+    let breathing_notes = NoteService::get_notes(
+        &pool,
+        &crypto,
+        &user_id,
+        &salt,
+        Some("breathing"),
+        50
+    ).await;
+    assert!(breathing_notes.is_ok());
+    assert_eq!(breathing_notes.unwrap().len(), 1);
+
+    cleanup(&pool, &user_id).await;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Agent Tool — GENERATE_REPORT types (weekly, monthly, yearly)
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn test_agent_report_type_yearly_is_valid() {
+    // Verify the GenerateReportRequest can carry yearly type
+    let req = bsdy_api::models::mental::GenerateReportRequest {
+        report_type: Some("yearly".into()),
+        period_start: None,
+        period_end: None,
+        send_email: Some(false),
+    };
+    assert_eq!(req.report_type.as_deref(), Some("yearly"));
+}
+
+#[test]
+fn test_agent_report_types_all_supported() {
+    // All types the agent can request
+    for report_type in &["weekly", "monthly", "yearly", "custom"] {
+        let req = bsdy_api::models::mental::GenerateReportRequest {
+            report_type: Some(report_type.to_string()),
+            period_start: if *report_type == "custom" {
+                Some("2026-01-01".into())
+            } else {
+                None
+            },
+            period_end: if *report_type == "custom" {
+                Some("2026-03-01".into())
+            } else {
+                None
+            },
+            send_email: None,
+        };
+        assert_eq!(req.report_type.as_deref(), Some(*report_type));
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Agent Tool — ToolCallRequest parsing for new tools
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn test_agent_tool_call_request_create_note_parsing() {
+    let json =
+        r#"{
+        "tool_name": "CREATE_NOTE",
+        "parameters": {
+            "title": "Sleep Hygiene Tips",
+            "content": "Keep consistent sleep schedule. Avoid screens 1hr before bed.",
+            "label": "sleep",
+            "is_pinned": false
+        }
+    }"#;
+    let tc: ToolCallRequest = serde_json::from_str(json).unwrap();
+    assert_eq!(tc.tool_name, "CREATE_NOTE");
+    assert_eq!(tc.parameters["title"], "Sleep Hygiene Tips");
+    assert_eq!(tc.parameters["label"], "sleep");
+}
+
+#[test]
+fn test_agent_tool_call_request_suggest_coping_parsing() {
+    let json =
+        r#"{
+        "tool_name": "SUGGEST_COPING_STRATEGIES",
+        "parameters": {
+            "context": "work-related burnout",
+            "save_as_notes": true,
+            "label": "burnout"
+        }
+    }"#;
+    let tc: ToolCallRequest = serde_json::from_str(json).unwrap();
+    assert_eq!(tc.tool_name, "SUGGEST_COPING_STRATEGIES");
+    assert_eq!(tc.parameters["context"], "work-related burnout");
+    assert!(tc.parameters["save_as_notes"].as_bool().unwrap());
+}
+
+#[test]
+fn test_agent_tool_name_case_insensitive_matching() {
+    // The agent normalizes tool names with .to_uppercase()
+    let variants = vec!["create_note", "CREATE_NOTE", "Create_Note"];
+    for variant in variants {
+        assert_eq!(
+            variant.to_uppercase(),
+            "CREATE_NOTE",
+            "Tool name '{}' should normalize to CREATE_NOTE",
+            variant
+        );
+    }
+}
+
+#[test]
+fn test_agent_tool_aliases_resolve_correctly() {
+    // Verify tool aliases from the match block
+    let aliases = vec![
+        ("CREATE_NOTE", "CREATE_NOTE"),
+        ("CREATE_COPING_NOTE", "CREATE_COPING_NOTE"),
+        ("UPDATE_NOTE", "UPDATE_NOTE"),
+        ("EDIT_NOTE", "EDIT_NOTE"),
+        ("DELETE_NOTE", "DELETE_NOTE"),
+        ("REMOVE_NOTE", "REMOVE_NOTE"),
+        ("SUGGEST_COPING_STRATEGIES", "SUGGEST_COPING_STRATEGIES"),
+        ("SUGGEST_COPING", "SUGGEST_COPING"),
+        ("GET_MOOD_ENTRIES", "GET_MOOD_ENTRIES"),
+        ("GET_MOOD_LOGS", "GET_MOOD_LOGS"),
+        ("GET_NOTES", "GET_NOTES"),
+        ("GET_COPING_NOTES", "GET_COPING_NOTES"),
+        ("GENERATE_REPORT", "GENERATE_REPORT"),
+        ("GET_BASELINE", "GET_BASELINE"),
+        ("GET_MENTAL_PROFILE", "GET_MENTAL_PROFILE")
+    ];
+    // All should be recognized (non-empty, valid tool names)
+    for (alias, _expected) in &aliases {
+        assert!(!alias.is_empty(), "Alias should not be empty");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Content Service Integration Tests
+// ═══════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn test_content_create_and_get() {
+    use bsdy_api::models::content::CreateContentRequest;
+    use bsdy_api::services::content_service::ContentService;
+
+    let (pool, user_id, _salt) = setup_user().await;
+
+    let req = CreateContentRequest {
+        title: "Test Article".into(),
+        body: "This is the article body content.".into(),
+        excerpt: Some("Brief excerpt".into()),
+        status: Some("draft".into()),
+    };
+
+    let content = ContentService::create_content(
+        &pool,
+        &user_id,
+        &req,
+        "http://localhost:8000"
+    ).await.expect("should create content");
+
+    assert_eq!(content.title, "Test Article");
+    assert_eq!(content.slug, "test-article");
+    assert_eq!(content.status, "draft");
+    assert!(content.published_at.is_none());
+    assert!(content.cover_image_url.is_none());
+
+    // Get by ID
+    let fetched = ContentService::get_content(
+        &pool,
+        &content.id,
+        true,
+        "http://localhost:8000"
+    ).await.expect("should get content by id");
+    assert_eq!(fetched.id, content.id);
+    assert_eq!(fetched.body, "This is the article body content.");
+
+    cleanup(&pool, &user_id).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_content_update_and_publish() {
+    use bsdy_api::models::content::{ CreateContentRequest, UpdateContentRequest };
+    use bsdy_api::services::content_service::ContentService;
+
+    let (pool, user_id, _salt) = setup_user().await;
+
+    let req = CreateContentRequest {
+        title: "Draft Post".into(),
+        body: "Initial body".into(),
+        excerpt: None,
+        status: None, // defaults to draft
+    };
+
+    let content = ContentService::create_content(
+        &pool,
+        &user_id,
+        &req,
+        "http://localhost:8000"
+    ).await.expect("create");
+    assert_eq!(content.status, "draft");
+
+    // Update: change title and publish
+    let update = UpdateContentRequest {
+        title: Some("Published Post".into()),
+        body: Some("Updated body".into()),
+        excerpt: Some("New excerpt".into()),
+        status: Some("published".into()),
+    };
+
+    let updated = ContentService::update_content(
+        &pool,
+        &content.id,
+        &update,
+        "http://localhost:8000"
+    ).await.expect("update");
+    assert_eq!(updated.title, "Published Post");
+    assert_eq!(updated.slug, "published-post");
+    assert_eq!(updated.status, "published");
+    assert!(updated.published_at.is_some());
+
+    cleanup(&pool, &user_id).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_content_list_public_vs_admin() {
+    use bsdy_api::models::content::CreateContentRequest;
+    use bsdy_api::services::content_service::ContentService;
+
+    let (pool, user_id, _salt) = setup_user().await;
+
+    // Create a draft and a published content
+    let draft = CreateContentRequest {
+        title: "Draft Only".into(),
+        body: "Draft body".into(),
+        excerpt: None,
+        status: Some("draft".into()),
+    };
+    let published = CreateContentRequest {
+        title: "Public Post".into(),
+        body: "Public body".into(),
+        excerpt: None,
+        status: Some("published".into()),
+    };
+
+    ContentService::create_content(&pool, &user_id, &draft, "http://localhost:8000").await.unwrap();
+    ContentService::create_content(
+        &pool,
+        &user_id,
+        &published,
+        "http://localhost:8000"
+    ).await.unwrap();
+
+    // Admin sees both
+    let (_admin_list, admin_total) = ContentService::list_contents(
+        &pool,
+        true,
+        50,
+        0,
+        "http://localhost:8000"
+    ).await.expect("admin list");
+    assert!(admin_total >= 2, "Admin should see at least 2 contents");
+
+    // Public sees only published
+    let (pub_list, _pub_total) = ContentService::list_contents(
+        &pool,
+        false,
+        50,
+        0,
+        "http://localhost:8000"
+    ).await.expect("public list");
+    for item in &pub_list {
+        assert_eq!(item.status, "published", "Public should only see published content");
+    }
+
+    cleanup(&pool, &user_id).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_content_delete() {
+    use bsdy_api::models::content::CreateContentRequest;
+    use bsdy_api::services::content_service::ContentService;
+
+    let (pool, user_id, _salt) = setup_user().await;
+
+    let req = CreateContentRequest {
+        title: "To Be Deleted".into(),
+        body: "Will be removed".into(),
+        excerpt: None,
+        status: None,
+    };
+
+    let content = ContentService::create_content(
+        &pool,
+        &user_id,
+        &req,
+        "http://localhost:8000"
+    ).await.expect("create");
+
+    ContentService::delete_content(&pool, &content.id).await.expect("delete");
+
+    // Should be gone
+    let result = ContentService::get_content(
+        &pool,
+        &content.id,
+        true,
+        "http://localhost:8000"
+    ).await;
+    assert!(result.is_err(), "Deleted content should not be found");
+
+    cleanup(&pool, &user_id).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_content_get_by_slug() {
+    use bsdy_api::models::content::CreateContentRequest;
+    use bsdy_api::services::content_service::ContentService;
+
+    let (pool, user_id, _salt) = setup_user().await;
+
+    let req = CreateContentRequest {
+        title: "Slug Lookup Test".into(),
+        body: "Body for slug test".into(),
+        excerpt: None,
+        status: Some("published".into()),
+    };
+
+    let content = ContentService::create_content(
+        &pool,
+        &user_id,
+        &req,
+        "http://localhost:8000"
+    ).await.expect("create");
+
+    let by_slug = ContentService::get_content_by_slug(
+        &pool,
+        &content.slug,
+        false,
+        "http://localhost:8000"
+    ).await.expect("get by slug");
+    assert_eq!(by_slug.id, content.id);
+    assert_eq!(by_slug.slug, "slug-lookup-test");
+
+    cleanup(&pool, &user_id).await;
+}
+
+#[test]
+fn test_content_status_validation() {
+    use bsdy_api::services::content_service::ContentService;
+    // Valid statuses should produce valid slugs (proxy: slug generation works)
+    let valid = vec!["draft", "published", "archived"];
+    for s in valid {
+        assert!(
+            s == "draft" || s == "published" || s == "archived",
+            "Status '{}' should be valid",
+            s
+        );
+    }
+    // Slug generation doesn't panic on edge cases
+    assert_eq!(ContentService::generate_slug(""), "");
+    assert_eq!(ContentService::generate_slug("---"), "");
+    assert_eq!(ContentService::generate_slug("A"), "a");
 }

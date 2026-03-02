@@ -28,6 +28,7 @@ fn make_test_user() -> UserRow {
         email_verification_token: None,
         email_verified_at: Some(now),
         onboarding_completed: true,
+        role: "basic".into(),
         encryption_salt: "abcdef1234567890".into(),
         created_at: now,
         updated_at: now,
@@ -181,4 +182,74 @@ fn test_detect_severity_case_insensitive() {
 fn test_detect_severity_crisis_takes_priority() {
     // Message contains both crisis and severe keywords
     assert_eq!(ChatService::detect_severity("I feel hopeless and want to kill myself"), "crisis");
+}
+
+// ═══════════════════════════════════════════════════════════
+//  User Role Tests
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn test_user_role_basic_by_default() {
+    let user = make_test_user();
+    // make_test_user sets role to "basic"
+    assert_eq!(user.role, "basic");
+}
+
+#[test]
+fn test_admin_role_check() {
+    let mut user = make_test_user();
+    user.role = "admin".into();
+    assert_eq!(user.role, "admin");
+    assert_ne!(user.role, "basic");
+}
+
+#[test]
+fn test_jwt_works_for_admin_user() {
+    let config = test_config();
+    let mut user = make_test_user();
+    user.role = "admin".into();
+    let token = AuthService::generate_jwt(&user, &config);
+    assert!(token.is_ok(), "JWT generation should work for admin users");
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Content Slug Generation Tests
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn test_content_slug_basic() {
+    use bsdy_api::services::content_service::ContentService;
+    assert_eq!(ContentService::generate_slug("Hello World"), "hello-world");
+}
+
+#[test]
+fn test_content_slug_special_characters() {
+    use bsdy_api::services::content_service::ContentService;
+    assert_eq!(
+        ContentService::generate_slug("Understanding Anxiety: A Guide!"),
+        "understanding-anxiety-a-guide"
+    );
+}
+
+#[test]
+fn test_content_slug_multiple_spaces_and_dashes() {
+    use bsdy_api::services::content_service::ContentService;
+    assert_eq!(
+        ContentService::generate_slug("  Multiple   Spaces   Here  "),
+        "multiple-spaces-here"
+    );
+}
+
+#[test]
+fn test_content_slug_unicode_stripped() {
+    use bsdy_api::services::content_service::ContentService;
+    // Non-ASCII chars are stripped, only ASCII alphanumeric remain
+    let slug = ContentService::generate_slug("Caf\u{00e9} Mood");
+    assert_eq!(slug, "caf-mood");
+}
+
+#[test]
+fn test_content_slug_already_clean() {
+    use bsdy_api::services::content_service::ContentService;
+    assert_eq!(ContentService::generate_slug("simple-slug"), "simple-slug");
 }

@@ -5,11 +5,13 @@ pub mod analytics;
 pub mod report;
 pub mod note;
 pub mod chat;
+pub mod content;
 pub mod log;
 pub mod health;
 pub mod docs;
 
 use axum::Router;
+use tower_http::services::ServeDir;
 
 use crate::state::AppState;
 
@@ -23,7 +25,9 @@ pub fn build_router() -> Router<AppState> {
         .nest("/api/reports", report::routes())
         .nest("/api/notes", note::routes())
         .nest("/api/chats", chat::routes())
+        .nest("/api/content", content::routes())
         .nest("/api/logs", log::routes())
         .merge(health::routes())
         .merge(docs::routes())
+        .nest_service("/uploads", ServeDir::new("uploads"))
 }

@@ -100,3 +100,27 @@ impl<S> FromRequestParts<S> for FullUser where AppState: FromRef<S>, S: Send + S
         })
     }
 }
+
+/// Admin user: verified email + admin role. Does NOT require onboarding.
+pub struct AdminUser {
+    pub user: UserRow,
+    pub claims: Claims,
+}
+
+#[async_trait]
+impl<S> FromRequestParts<S> for AdminUser where AppState: FromRef<S>, S: Send + Sync {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let verified = VerifiedUser::from_request_parts(parts, state).await?;
+
+        if verified.user.role != "admin" {
+            return Err(AppError::Forbidden("Admin access required".into()));
+        }
+
+        Ok(AdminUser {
+            user: verified.user,
+            claims: verified.claims,
+        })
+    }
+}

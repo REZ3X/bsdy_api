@@ -341,6 +341,38 @@ impl AgentService {
             "GET_BASELINE" | "GET_MENTAL_PROFILE" => {
                 Self::tool_get_baseline(pool, crypto, user_id, encryption_salt).await
             }
+            "CREATE_NOTE" | "CREATE_COPING_NOTE" => {
+                Self::tool_create_note(
+                    pool,
+                    crypto,
+                    user_id,
+                    encryption_salt,
+                    &tool_call.parameters
+                ).await
+            }
+            "UPDATE_NOTE" | "EDIT_NOTE" => {
+                Self::tool_update_note(
+                    pool,
+                    crypto,
+                    user_id,
+                    encryption_salt,
+                    &tool_call.parameters
+                ).await
+            }
+            "DELETE_NOTE" | "REMOVE_NOTE" => {
+                Self::tool_delete_note(pool, user_id, &tool_call.parameters).await
+            }
+            "SUGGEST_COPING_STRATEGIES" | "SUGGEST_COPING" => {
+                Self::tool_suggest_coping_strategies(
+                    pool,
+                    crypto,
+                    gemini,
+                    user_id,
+                    user_name,
+                    encryption_salt,
+                    &tool_call.parameters
+                ).await
+            }
             _ => Err(AppError::BadRequest(format!("Unknown tool: {}", tool_call.tool_name))),
         }
     }
@@ -537,6 +569,255 @@ impl AgentService {
         Ok(serde_json::to_value(&baseline).unwrap_or(json!({"success": true})))
     }
 
+    // ── Note CRUD Tools ─────────────────────────────────────
+
+    async fn tool_create_note(
+        pool: &MySqlPool,
+        crypto: &CryptoService,
+        user_id: &str,
+        encryption_salt: &str,
+        params: &Value
+    ) -> std::result::Result<Value, AppError> {
+        let title = params["title"].as_str().unwrap_or("Untitled Note").to_string();
+        let content = params["content"]
+            .as_str()
+            .ok_or_else(|| AppError::BadRequest("CREATE_NOTE requires 'content' parameter".into()))?
+            .to_string();
+        let label = params["label"].as_str().map(String::from);
+        let is_pinned = params["is_pinned"].as_bool();
+
+        let req = crate::models::note::CreateNoteRequest {
+            title,
+            content,
+            label,
+            is_pinned,
+        };
+
+        let note = NoteService::create_note(pool, crypto, user_id, encryption_salt, &req).await?;
+
+        Ok(
+            json!({
+            "success": true,
+            "note": note,
+            "message": "Note created successfully"
+        })
+        )
+    }
+
+    async fn tool_update_note(
+        pool: &MySqlPool,
+        crypto: &CryptoService,
+        user_id: &str,
+        encryption_salt: &str,
+        params: &Value
+    ) -> std::result::Result<Value, AppError> {
+        let note_id = params["note_id"]
+            .as_str()
+            .ok_or_else(||
+                AppError::BadRequest("UPDATE_NOTE requires 'note_id' parameter".into())
+            )?;
+
+        let req = crate::models::note::UpdateNoteRequest {
+            title: params["title"].as_str().map(String::from),
+            content: params["content"].as_str().map(String::from),
+            label: params["label"].as_str().map(String::from),
+            is_pinned: params["is_pinned"].as_bool(),
+        };
+
+        let note = NoteService::update_note(
+            pool,
+            crypto,
+            user_id,
+            note_id,
+            encryption_salt,
+            &req
+        ).await?;
+
+        Ok(
+            json!({
+            "success": true,
+            "note": note,
+            "message": "Note updated successfully"
+        })
+        )
+    }
+
+    async fn tool_delete_note(
+        pool: &MySqlPool,
+        user_id: &str,
+        params: &Value
+    ) -> std::result::Result<Value, AppError> {
+        let note_id = params["note_id"]
+            .as_str()
+            .ok_or_else(||
+                AppError::BadRequest("DELETE_NOTE requires 'note_id' parameter".into())
+            )?;
+
+        NoteService::delete_note(pool, user_id, note_id).await?;
+
+        Ok(
+            json!({
+            "success": true,
+            "message": "Note deleted successfully"
+        })
+        )
+    }
+
+    // ── Coping Strategy Suggestion Tool ──────────────────────
+
+    async fn tool_suggest_coping_strategies(
+        pool: &MySqlPool,
+        crypto: &CryptoService,
+        gemini: &GeminiService,
+        user_id: &str,
+        user_name: &str,
+        encryption_salt: &str,
+        params: &Value
+    ) -> std::result::Result<Value, AppError> {
+        let context = params["context"].as_str().unwrap_or("general wellness");
+        let save_as_notes = params["save_as_notes"].as_bool().unwrap_or(false);
+        let label = params["label"].as_str().unwrap_or("coping");
+
+        // Gather user's recent mood data for context
+        let entries = crate::services::mood_service::MoodService
+            ::get_mood_entries(pool, crypto, user_id, encryption_salt, None, None, Some(14)).await
+            .unwrap_or_default();
+
+        // Gather existing notes to avoid duplicates
+        let existing_notes = NoteService::get_notes(
+            pool,
+            crypto,
+            user_id,
+            encryption_salt,
+            Some("coping"),
+            20
+        ).await.unwrap_or_default();
+
+        let existing_titles: Vec<String> = existing_notes
+            .iter()
+            .map(|n| n.title.clone())
+            .collect();
+
+        // Gather baseline if available
+        let baseline = crate::services::onboarding_service::OnboardingService
+            ::get_baseline(pool, crypto, user_id, encryption_salt).await
+            .ok();
+
+        let prompt = format!(
+            r#"Generate personalized coping strategies for user "{name}".
+
+CONTEXT FROM USER: {context}
+
+RECENT MOOD DATA (last 14 days):
+{mood_data}
+
+BASELINE PROFILE:
+{baseline}
+
+EXISTING COPING NOTES (avoid duplicating these):
+{existing}
+
+Generate 3-5 specific, actionable coping strategies as JSON:
+{{
+  "strategies": [
+    {{
+      "title": "Short descriptive title (max 50 chars)",
+      "content": "Detailed step-by-step instructions (2-3 paragraphs). Include when to use it, how to do it, and why it helps.",
+      "category": "breathing|mindfulness|physical|journaling|social|creative|cognitive|routine"
+    }}
+  ]
+}}
+
+Tailor strategies to the user's specific situation, stress levels, and patterns.
+Be practical, empathetic, and evidence-based. Return ONLY valid JSON."#,
+            name = user_name,
+            context = context,
+            mood_data = serde_json::to_string_pretty(&entries).unwrap_or_default(),
+            baseline = serde_json::to_string_pretty(&baseline).unwrap_or("Not available".into()),
+            existing = existing_titles.join(", ")
+        );
+
+        let ai_raw = gemini
+            .generate_with_system(
+                &prompt,
+                Some(
+                    "You are a mental health coping strategy expert. Always respond with valid JSON only."
+                ),
+                0.6,
+                4096
+            ).await
+            .map_err(|e| AppError::InternalError(e.into()))?;
+
+        // Parse AI response
+        let parsed = Self::parse_strategies_json(&ai_raw)?;
+        let strategies = parsed["strategies"].as_array();
+
+        let mut saved_notes = Vec::new();
+
+        if save_as_notes {
+            if let Some(strategies_arr) = strategies {
+                for strategy in strategies_arr {
+                    let title = strategy["title"].as_str().unwrap_or("Coping Strategy");
+                    let content = strategy["content"].as_str().unwrap_or("");
+                    let category = strategy["category"].as_str().unwrap_or(label);
+
+                    if content.is_empty() {
+                        continue;
+                    }
+
+                    let req = crate::models::note::CreateNoteRequest {
+                        title: title.to_string(),
+                        content: content.to_string(),
+                        label: Some(category.to_string()),
+                        is_pinned: Some(false),
+                    };
+
+                    match
+                        NoteService::create_note(pool, crypto, user_id, encryption_salt, &req).await
+                    {
+                        Ok(note) =>
+                            saved_notes.push(
+                                json!({
+                            "id": note.id,
+                            "title": note.title,
+                            "label": note.label,
+                        })
+                            ),
+                        Err(e) => {
+                            tracing::warn!("Failed to save coping note: {:?}", e);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(
+            json!({
+            "success": true,
+            "strategies": parsed["strategies"],
+            "saved_as_notes": save_as_notes,
+            "saved_notes": saved_notes,
+            "count": strategies.map(|s| s.len()).unwrap_or(0)
+        })
+        )
+    }
+
+    fn parse_strategies_json(raw: &str) -> std::result::Result<Value, AppError> {
+        let trimmed = raw.trim();
+        if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
+            return Ok(v);
+        }
+        let cleaned = trimmed
+            .trim_start_matches("```json")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim();
+        serde_json::from_str::<Value>(cleaned).map_err(|e| {
+            tracing::error!("Failed to parse coping strategies JSON: {}. Raw: {}", e, raw);
+            AppError::InternalError(anyhow::anyhow!("Failed to parse AI coping strategies"))
+        })
+    }
+
     // ── System Prompt ───────────────────────────────────────
 
     fn build_agent_system_prompt(user_name: &str) -> String {
@@ -544,19 +825,34 @@ impl AgentService {
             r#"You are BSDY Agentic AI, an advanced mental health assistant with access to user data tools. You are helping {name}.
 
 YOUR CAPABILITIES (Tools):
+
+--- DATA RETRIEVAL ---
 1. GET_MOOD_ENTRIES — Retrieve mood tracker data
    Parameters: from (YYYY-MM-DD), to (YYYY-MM-DD), limit (number)
 2. GET_ANALYTICS — Get existing AI analytics summaries
    Parameters: limit (number)
-3. GENERATE_ANALYTICS — Generate a new AI analytics summary
-   Parameters: period (weekly|monthly|quarterly)
-4. GET_NOTES — Get user's coping toolkit notes
+3. GET_NOTES — Get user's coping toolkit notes
    Parameters: label (optional filter), limit (number)
-5. GET_REPORTS — Get existing mental health reports
+4. GET_REPORTS — Get existing mental health reports
    Parameters: limit (number)
-6. GENERATE_REPORT — Generate a new mental health report
-   Parameters: report_type (weekly|monthly|quarterly|custom), period_start, period_end, send_email (bool)
-7. GET_BASELINE — Get user's baseline mental health assessment
+5. GET_BASELINE — Get user's baseline mental health assessment
+   Parameters: (none)
+
+--- AI GENERATION ---
+6. GENERATE_ANALYTICS — Generate a new AI analytics summary
+   Parameters: period (weekly|monthly|quarterly)
+7. GENERATE_REPORT — Generate a new mental health report
+   Parameters: report_type (weekly|monthly|yearly|custom), period_start (YYYY-MM-DD), period_end (YYYY-MM-DD), send_email (bool)
+8. SUGGEST_COPING_STRATEGIES — Analyze user data and generate personalized coping strategies
+   Parameters: context (what the user is struggling with), save_as_notes (bool — save strategies to their coping toolkit), label (note label, default "coping")
+
+--- NOTE MANAGEMENT ---
+9. CREATE_NOTE — Create a new coping toolkit note for the user
+   Parameters: title (string), content (string), label (optional, e.g. "coping", "breathing", "journaling"), is_pinned (bool)
+10. UPDATE_NOTE — Edit an existing note
+    Parameters: note_id (required), title (optional), content (optional), label (optional), is_pinned (optional)
+11. DELETE_NOTE — Delete a note
+    Parameters: note_id (required)
 
 RESPONSE FORMAT:
 When you need to use tools, respond in this EXACT JSON format:
@@ -578,11 +874,17 @@ GUIDELINES:
 3. After receiving tool results, summarize them in a friendly, natural way
 4. Always be empathetic and constructive with mental health data
 5. If mood data shows concerning patterns, address it with care and suggest professional help
-6. When generating reports, ask before sending emails
+6. When generating reports, ask the user which type (weekly, monthly, yearly) and confirm before sending emails
 7. You can cross-reference different data sources (mood + notes + analytics) for deeper insights
 8. If the user asks about something unrelated to their mental health data, respond conversationally
 9. Never show raw JSON to the user — always present data naturally
-10. Be proactive: if you notice something interesting in the data, mention it"#,
+10. Be proactive: if you notice something interesting in the data, mention it
+11. When the user asks for coping strategies, use SUGGEST_COPING_STRATEGIES to generate personalized ones based on their mood data and baseline
+12. Offer to save coping strategies as notes (set save_as_notes=true) so users can reference them later
+13. When creating or editing notes, write in a warm, practical tone with clear actionable steps
+14. When the user asks to create a note, use CREATE_NOTE with a descriptive title and structured content
+15. When updating notes, first use GET_NOTES to find the note_id, then UPDATE_NOTE with the changes
+16. For report requests: 'weekly' covers last 7 days, 'monthly' covers last 30 days, 'yearly' covers last 365 days"#,
             name = user_name
         )
     }

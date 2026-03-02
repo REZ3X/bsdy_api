@@ -16,6 +16,7 @@ pub struct UserRow {
     pub email_verification_token: Option<String>,
     pub email_verified_at: Option<NaiveDateTime>,
     pub onboarding_completed: bool,
+    pub role: String,
     pub encryption_salt: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
@@ -33,6 +34,7 @@ pub struct UserResponse {
     pub birth: Option<String>,
     pub email_verified: bool,
     pub onboarding_completed: bool,
+    pub role: String,
     pub created_at: String,
 }
 
@@ -47,6 +49,7 @@ impl From<&UserRow> for UserResponse {
             birth: u.birth.map(|b| b.to_string()),
             email_verified: u.email_verification_status == "verified",
             onboarding_completed: u.onboarding_completed,
+            role: u.role.clone(),
             created_at: u.created_at.to_string(),
         }
     }

@@ -256,3 +256,68 @@ fn test_scheduler_yearly_cron_runs_jan_first() {
     assert_eq!(parts[3], "1", "yearly cron should run on the 1st");
     assert_eq!(parts[4], "1", "yearly cron should run in January");
 }
+
+// ═══════════════════════════════════════════════════════════
+//  Content Route Tests (with DB)
+// ═══════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn test_content_list_public_no_auth() {
+    load_env();
+    let url = test_database_url();
+    let config_db = bsdy_api::config::DatabaseConfig {
+        url,
+        max_connections: 2,
+    };
+    let pool = bsdy_api::db::create_pool(&config_db).await.expect("pool");
+    bsdy_api::db::run_migrations(&pool).await.expect("migrations");
+    let config = test_config();
+    let crypto = test_crypto();
+    let gemini = GeminiService::new("fake".into(), "fake".into());
+    let email = test_email();
+    let state = AppState::new(pool, config, crypto, gemini, email);
+
+    let app = build_router().with_state(state);
+
+    // GET /api/content should work without auth (public listing)
+    let response = app
+        .oneshot(Request::builder().uri("/api/content").body(Body::empty()).unwrap()).await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_content_create_without_auth_fails() {
+    load_env();
+    let url = test_database_url();
+    let config_db = bsdy_api::config::DatabaseConfig {
+        url,
+        max_connections: 2,
+    };
+    let pool = bsdy_api::db::create_pool(&config_db).await.expect("pool");
+    bsdy_api::db::run_migrations(&pool).await.expect("migrations");
+    let config = test_config();
+    let crypto = test_crypto();
+    let gemini = GeminiService::new("fake".into(), "fake".into());
+    let email = test_email();
+    let state = AppState::new(pool, config, crypto, gemini, email);
+
+    let app = build_router().with_state(state);
+
+    // POST /api/content without auth should fail (401)
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/content")
+                .header("Content-Type", "application/json")
+                .body(Body::from(r#"{"title":"Test","body":"Content"}"#))
+                .unwrap()
+        ).await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}

@@ -8,6 +8,7 @@ pub mod report_service;
 pub mod note_service;
 pub mod chat_service;
 pub mod agent_service;
+pub mod content_service;
 pub mod scheduler_service;
 
 pub use auth_service::AuthService;
@@ -20,4 +21,5 @@ pub use report_service::ReportService;
 pub use note_service::NoteService;
 pub use chat_service::ChatService;
 pub use agent_service::AgentService;
+pub use content_service::ContentService;
 pub use scheduler_service::SchedulerService;

@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
     email_verification_token VARCHAR(255),
     email_verified_at DATETIME,
     onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE,
+    role ENUM('basic', 'admin') NOT NULL DEFAULT 'basic',
     encryption_salt CHAR(32) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -218,4 +219,25 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     details TEXT,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- CONTENTS (Blog/Article Management - Admin Only)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS contents (
+    id CHAR(36) NOT NULL PRIMARY KEY,
+    author_id CHAR(36) NOT NULL,
+    title VARCHAR(500) NOT NULL,
+    slug VARCHAR(500) NOT NULL UNIQUE,
+    body TEXT NOT NULL,
+    excerpt VARCHAR(1000),
+    cover_image VARCHAR(500),
+    status ENUM('draft', 'published', 'archived') NOT NULL DEFAULT 'draft',
+    published_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_contents_status (status, published_at DESC),
+    INDEX idx_contents_slug (slug),
+    INDEX idx_contents_author (author_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

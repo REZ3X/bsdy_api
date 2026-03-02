@@ -24,9 +24,11 @@ Mental Companion & Tracker Platform — backend API built with **Rust / Axum**.
   - [Reports](#reports)
   - [Notes](#notes)
   - [Chats](#chats)
+  - [Content (Admin)](#content-admin)
   - [Logs](#logs)
   - [Documentation Pages](#documentation-pages)
 - [Authentication Flow](#authentication-flow)
+- [User Roles](#user-roles)
 - [Encryption](#encryption)
 - [App Modes](#app-modes)
 - [Background Scheduler](#background-scheduler)
@@ -48,9 +50,11 @@ Mental Companion & Tracker Platform — backend API built with **Rust / Axum**.
 - **Mood tracking** with daily entries and trend analytics
 - **AI-generated analytics & reports** (weekly / monthly / yearly, scheduled or on-demand)
 - **Encrypted notes** (coping toolkit)
+- **Admin content management** — blog/article CRUD with cover image uploads, draft/published/archived statuses
+- **Role-based access** — `basic` (default) and `admin` user roles
 - **Chat system** with AI companion and agentic tool-calling capabilities
 - **Background scheduler** for automated report generation
-- **Password-protected API docs** served as HTML pages
+- **Interactive API docs** with JavaScript code examples, live API playground, and in-browser test runner
 - **Dual mode**: `internal` (relaxed) and `external` (API-key gated)
 - **Activity & auth logging** for auditing
 - **Graceful shutdown** with Ctrl+C / SIGTERM handling
@@ -81,7 +85,8 @@ bsdy_api/
 ├── Cargo.toml                # Dependencies & metadata
 ├── .env.example              # Environment template (copy to .env)
 ├── migrations/
-│   └── 001_initial_schema.sql
+│   ├── 001_initial_schema.sql
+│   └── 002_admin_content.sql
 ├── src/
 │   ├── main.rs               # Entry point — server startup
 │   ├── lib.rs                # Public module re-exports
@@ -92,13 +97,14 @@ bsdy_api/
 │   ├── state.rs              # Shared AppState (pool, config, services)
 │   ├── middleware/
 │   │   ├── api_key.rs        # API-key gate for external mode
-│   │   ├── auth.rs           # JWT AuthUser / VerifiedUser extractors
+│   │   ├── auth.rs           # JWT AuthUser / VerifiedUser / AdminUser extractors
 │   │   └── activity_log.rs   # Request logging helpers
 │   ├── models/
-│   │   ├── user.rs           # UserRow, Claims, AuthResponse, etc.
+│   │   ├── user.rs           # UserRow (with role), Claims, AuthResponse, etc.
 │   │   ├── mental.rs         # Baseline assessment models
 │   │   ├── chat.rs           # Chat & message models
 │   │   ├── note.rs           # Note models
+│   │   ├── content.rs        # Content/blog models
 │   │   └── log.rs            # Auth & activity log models
 │   ├── routes/
 │   │   ├── mod.rs            # build_router() — assembles all routes
@@ -109,6 +115,7 @@ bsdy_api/
 │   │   ├── report.rs         # /api/reports/*
 │   │   ├── note.rs           # /api/notes/*
 │   │   ├── chat.rs           # /api/chats/*
+│   │   ├── content.rs        # /api/content/* (admin + public)
 │   │   ├── log.rs            # /api/logs/*
 │   │   ├── health.rs         # /health
 │   │   └── docs.rs           # /docs/*
@@ -121,6 +128,7 @@ bsdy_api/
 │       ├── note_service.rs
 │       ├── chat_service.rs
 │       ├── agent_service.rs
+│       ├── content_service.rs
 │       ├── gemini_service.rs
 │       ├── email_service.rs
 │       └── scheduler_service.rs
@@ -210,7 +218,7 @@ Expected response:
   "success": true,
   "status": "healthy",
   "service": "bsdy-api",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "database": "connected"
 }
 ```
@@ -292,6 +300,84 @@ All protected routes require a `Authorization: Bearer <JWT>` header. Routes unde
 | GET    | `/api/chats/{chat_id}/messages` | JWT + Verified | Get chat messages                  |
 | POST   | `/api/chats/{chat_id}/messages` | JWT + Verified | Send a message (AI responds)       |
 
+#### Agentic AI Tools
+
+When creating a chat with `chat_type: "agentic"`, the AI assistant gains access to **11 tools** it can invoke autonomously during conversation. The AI decides which tools to call based on user intent.
+
+**Data Retrieval Tools**
+
+| Tool            | Parameters                                      | Description                                       |
+| --------------- | ----------------------------------------------- | ------------------------------------------------- |
+| `GET_MOOD_DATA` | `days` (int, default 7)                         | Fetch recent mood entries for analysis            |
+| `GET_BASELINE`  | —                                               | Retrieve user's baseline mental-health assessment |
+| `GET_NOTES`     | `label` (optional)                              | List user's notes, optionally filtered by label   |
+| `GET_ANALYTICS` | —                                               | Retrieve existing analytics summaries             |
+| `GET_REPORT`    | `report_type` (weekly/monthly/quarterly/yearly) | Fetch the latest report of the specified type     |
+
+**AI Generation Tools**
+
+| Tool                        | Parameters                                                     | Description                                                                |
+| --------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `GENERATE_ANALYTICS`        | `days` (int, default 7)                                        | Generate a new AI analytics summary from recent mood data                  |
+| `GENERATE_REPORT`           | `report_type` (weekly/monthly/quarterly/yearly/custom), `days` | Generate a new AI mental-health report                                     |
+| `SUGGEST_COPING_STRATEGIES` | `save_as_notes` (bool, default false)                          | Analyze mood + baseline + existing notes, generate personalized strategies |
+
+**Note Management Tools**
+
+| Tool          | Parameters                                     | Description                        |
+| ------------- | ---------------------------------------------- | ---------------------------------- |
+| `CREATE_NOTE` | `title`, `content`, `label` (default "coping") | Create a new note from the AI chat |
+| `UPDATE_NOTE` | `note_id`, `title` (opt), `content` (opt)      | Edit an existing note              |
+| `DELETE_NOTE` | `note_id`                                      | Delete a note                      |
+
+**How it works:**
+
+1. Client sends a message to an agentic chat via `POST /api/chats/{chat_id}/messages`
+2. The AI analyzes the message and decides if any tools are needed
+3. If tools are needed, the AI returns a JSON payload with `tool_calls`
+4. The server executes each tool call automatically (DB queries, AI generation, note CRUD)
+5. Tool results are fed back to the AI for a natural-language summary
+6. The final response is returned to the client as a normal chat message
+
+**Example flow:**
+
+```
+User: "How have I been feeling this week? Can you suggest some coping strategies and save them?"
+
+AI internally calls:
+  1. GET_MOOD_DATA { "days": 7 }
+  2. GET_BASELINE {}
+  3. SUGGEST_COPING_STRATEGIES { "save_as_notes": true }
+
+AI responds with a natural summary + personalized strategies (also saved as notes).
+```
+
+> **Tip:** Use `chat_type: "companion"` for a simple conversational AI without tool access.
+
+### Content (Admin)
+
+Content is a blog/article system. **Read access is public** (published items only). **Management requires admin role**.
+
+| Method | Path                              | Auth         | Description                                 |
+| ------ | --------------------------------- | ------------ | ------------------------------------------- |
+| GET    | `/api/content`                    | Public / JWT | List content (published only for non-admin) |
+| GET    | `/api/content/{content_id}`       | Public / JWT | Get content by ID                           |
+| GET    | `/api/content/slug/{slug}`        | Public / JWT | Get content by slug                         |
+| POST   | `/api/content`                    | JWT + Admin  | Create new content                          |
+| PUT    | `/api/content/{content_id}`       | JWT + Admin  | Update content                              |
+| DELETE | `/api/content/{content_id}`       | JWT + Admin  | Delete content and its cover image          |
+| POST   | `/api/content/{content_id}/cover` | JWT + Admin  | Upload/replace cover image (multipart)      |
+
+**Content statuses:** `draft` (admin only), `published` (public), `archived` (admin only)
+
+**Cover images:**
+
+- Upload via `POST /api/content/{id}/cover` as `multipart/form-data`
+- Max size: 10 MB
+- Allowed types: JPEG, PNG, WebP, GIF
+- Served statically at `/uploads/content/{filename}`
+- Auto-deleted when content is deleted or cover is replaced
+
 ### Logs
 
 | Method | Path                 | Auth           | Description             |
@@ -301,17 +387,29 @@ All protected routes require a `Authorization: Bearer <JWT>` header. Routes unde
 
 ### Documentation Pages
 
-| Method | Path                                        | Auth           | Description         |
-| ------ | ------------------------------------------- | -------------- | ------------------- |
-| GET    | `/docs?password=<DOCS_PASSWORD>`            | Password query | API docs index      |
-| GET    | `/docs/auth?password=<DOCS_PASSWORD>`       | Password query | Auth endpoints docs |
-| GET    | `/docs/onboarding?password=<DOCS_PASSWORD>` | Password query | Onboarding docs     |
-| GET    | `/docs/mood?password=<DOCS_PASSWORD>`       | Password query | Mood tracker docs   |
-| GET    | `/docs/analytics?password=<DOCS_PASSWORD>`  | Password query | Analytics docs      |
-| GET    | `/docs/reports?password=<DOCS_PASSWORD>`    | Password query | Reports docs        |
-| GET    | `/docs/notes?password=<DOCS_PASSWORD>`      | Password query | Notes docs          |
-| GET    | `/docs/chats?password=<DOCS_PASSWORD>`      | Password query | Chats docs          |
-| GET    | `/docs/logs?password=<DOCS_PASSWORD>`       | Password query | Logs docs           |
+| Method | Path                                          | Auth           | Description                                          |
+| ------ | --------------------------------------------- | -------------- | ---------------------------------------------------- |
+| GET    | `/docs?password=<DOCS_PASSWORD>`              | Password query | API docs index                                       |
+| GET    | `/docs/auth?password=<DOCS_PASSWORD>`         | Password query | Auth endpoints docs                                  |
+| GET    | `/docs/onboarding?password=<DOCS_PASSWORD>`   | Password query | Onboarding docs                                      |
+| GET    | `/docs/mood?password=<DOCS_PASSWORD>`         | Password query | Mood tracker docs                                    |
+| GET    | `/docs/analytics?password=<DOCS_PASSWORD>`    | Password query | Analytics docs                                       |
+| GET    | `/docs/reports?password=<DOCS_PASSWORD>`      | Password query | Reports docs                                         |
+| GET    | `/docs/notes?password=<DOCS_PASSWORD>`        | Password query | Notes docs                                           |
+| GET    | `/docs/chats?password=<DOCS_PASSWORD>`        | Password query | Chats docs                                           |
+| GET    | `/docs/logs?password=<DOCS_PASSWORD>`         | Password query | Logs docs                                            |
+| GET    | `/docs/content?password=<DOCS_PASSWORD>`      | Password query | Content docs                                         |
+| GET    | `/docs/playground?password=<DOCS_PASSWORD>`   | Password query | Interactive API playground                           |
+| GET    | `/docs/tests?password=<DOCS_PASSWORD>`        | Password query | Test runner UI                                       |
+| POST   | `/docs/run-tests?password=...&mode=unit\|all` | Password query | Execute test suite (returns JSON with stdout/stderr) |
+
+### Interactive Documentation
+
+The docs UI (`/docs?password=...`) includes developer tools beyond static API reference:
+
+- **JavaScript Examples** — Every endpoint includes a collapsible JavaScript/fetch code snippet showing exactly how to call the API from a frontend. A reusable `api()` helper is shown on the index page.
+- **API Playground** (`/docs/playground`) — An in-browser API tester similar to Postman. Select method, enter URL, add headers (including `Authorization: Bearer <token>`), compose JSON body, and click "Send" to see the live response with status code and timing. Includes quick-fill presets for common endpoints.
+- **Test Runner** (`/docs/tests`) — Execute the full test suite from the browser. Click "Run Unit Tests" (no external services needed) or "Run All Tests" (includes integration tests requiring MariaDB). Output is streamed back and displayed in a terminal-like view with pass/fail status.
 
 ---
 
@@ -333,6 +431,21 @@ All protected routes require a `Authorization: Bearer <JWT>` header. Routes unde
 
 6. All subsequent requests include:
    Authorization: Bearer <JWT>
+```
+
+---
+
+## User Roles
+
+| Role    | Default | Permissions                                                                       |
+| ------- | ------- | --------------------------------------------------------------------------------- |
+| `basic` | Yes     | All user features: mood, chats, notes, analytics, reports. Read published content |
+| `admin` | No      | Everything `basic` can do + full content management (CRUD + image upload)         |
+
+Every newly registered account is assigned the `basic` role. Admin accounts must be promoted manually via database:
+
+```sql
+UPDATE users SET role = 'admin' WHERE email = 'admin@example.com';
 ```
 
 ---
@@ -405,13 +518,13 @@ cargo test test_email_live_send_verification -- --ignored --nocapture
 | File                    | Tests                                                                | Requires                                                   |
 | ----------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------- |
 | `test_config_crypto.rs` | Config parsing, env defaults, crypto encrypt/decrypt, key derivation | Nothing                                                    |
-| `test_errors_models.rs` | Error types, model serialization, request validation                 | Nothing                                                    |
-| `test_auth_chat.rs`     | JWT encode/decode, auth service logic, chat models                   | Nothing                                                    |
+| `test_errors_models.rs` | Error types, model serialization, agent/content models, role tests   | Nothing                                                    |
+| `test_auth_chat.rs`     | JWT, auth service, chat models, role checks, slug generation         | Nothing                                                    |
 | `test_database.rs`      | DB pool, migrations, CRUD on all tables                              | MariaDB                                                    |
 | `test_gemini.rs`        | Request/response parsing (unit), live AI calls (ignored)             | Gemini API key (ignored tests)                             |
 | `test_email.rs`         | Template rendering (unit), live SMTP send (ignored)                  | Brevo credentials + `TEST_EMAIL_RECIPIENT` (ignored tests) |
-| `test_services.rs`      | Service-layer integration (mood, analytics, reports)                 | MariaDB                                                    |
-| `test_routes.rs`        | HTTP endpoints, auth guards, scheduler cron validation               | MariaDB (ignored), nothing (cron tests)                    |
+| `test_services.rs`      | Service integration (mood, analytics, reports, agents, content CRUD) | MariaDB                                                    |
+| `test_routes.rs`        | HTTP endpoints, auth guards, content routes, scheduler cron          | MariaDB (ignored), nothing (cron tests)                    |
 
 Tests marked `#[ignore]` require live external services (database, SMTP, Gemini API). Run them with `--include-ignored` or `--ignored`.
 

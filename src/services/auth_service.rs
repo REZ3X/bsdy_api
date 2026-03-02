@@ -121,8 +121,8 @@ impl AuthService {
         sqlx
             ::query(
                 r#"
-            INSERT INTO users (id, google_id, username, name, email, avatar_url, email_verification_status, email_verification_token, onboarding_completed, encryption_salt)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, FALSE, ?)
+            INSERT INTO users (id, google_id, username, name, email, avatar_url, email_verification_status, email_verification_token, onboarding_completed, role, encryption_salt)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, FALSE, 'basic', ?)
         "#
             )
             .bind(&id)
