@@ -241,3 +241,22 @@ CREATE TABLE IF NOT EXISTS contents (
     INDEX idx_contents_slug (slug),
     INDEX idx_contents_author (author_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- ADMIN ACTION LOGS (Admin-only actions like content management)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS admin_action_logs (
+    id CHAR(36) NOT NULL PRIMARY KEY,
+    admin_id CHAR(36) NOT NULL,
+    action ENUM('create', 'read', 'update', 'delete') NOT NULL,
+    feature VARCHAR(100) NOT NULL,
+    entity_type VARCHAR(100) NOT NULL,
+    entity_id CHAR(36),
+    details TEXT,
+    ip_address VARCHAR(45),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_admin_logs_admin (admin_id, created_at),
+    INDEX idx_admin_logs_feature (feature, created_at),
+    INDEX idx_admin_logs_entity (entity_type, entity_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

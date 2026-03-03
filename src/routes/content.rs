@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{ AppError, Result },
-    middleware::{ activity_log::log_activity, auth::{ AdminUser, AuthUser } },
+    middleware::{ activity_log::log_admin_activity, auth::{ AdminUser, AuthUser } },
     models::content::{ CreateContentRequest, UpdateContentRequest },
     services::ContentService,
     state::AppState,
@@ -152,7 +152,7 @@ async fn create_content(
     let base = image_base_url(&state);
     let content = ContentService::create_content(&state.db, &admin.user.id, &req, &base).await?;
 
-    log_activity(
+    log_admin_activity(
         &state.db,
         &admin.user.id,
         "create",
@@ -177,7 +177,7 @@ async fn update_content(
     let base = image_base_url(&state);
     let content = ContentService::update_content(&state.db, &content_id, &req, &base).await?;
 
-    log_activity(
+    log_admin_activity(
         &state.db,
         &admin.user.id,
         "update",
@@ -213,7 +213,7 @@ async fn delete_content(
 
     ContentService::delete_content(&state.db, &content_id).await?;
 
-    log_activity(
+    log_admin_activity(
         &state.db,
         &admin.user.id,
         "delete",
@@ -308,7 +308,7 @@ async fn upload_cover_image(
     let base = image_base_url(&state);
     let content = ContentService::set_cover_image(&state.db, &content_id, &filename, &base).await?;
 
-    log_activity(
+    log_admin_activity(
         &state.db,
         &admin.user.id,
         "update",

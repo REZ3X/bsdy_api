@@ -46,6 +46,48 @@ async fn test_health_endpoint() {
     assert_eq!(response.status(), StatusCode::OK);
 }
 
+#[tokio::test]
+#[ignore]
+async fn test_health_response_structure() {
+    load_env();
+    let url = test_database_url();
+    let config_db = bsdy_api::config::DatabaseConfig {
+        url,
+        max_connections: 2,
+    };
+    let pool = bsdy_api::db::create_pool(&config_db).await.expect("pool");
+    let config = test_config();
+    let crypto = test_crypto();
+    let gemini = GeminiService::new("fake".into(), "fake".into());
+    let email = test_email();
+    let state = AppState::new(pool, config, crypto, gemini, email);
+
+    let app = build_router().with_state(state);
+
+    let response = app
+        .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap()).await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    // Validate response structure
+    assert_eq!(json["success"], true);
+    assert!(json["service"].as_str().is_some());
+    assert!(json["version"].as_str().is_some());
+    assert!(json["status"].as_str().is_some());
+    // New: checks object with individual service statuses
+    assert!(json["checks"].is_object());
+    assert!(json["checks"]["database"].as_str().is_some());
+    assert!(json["checks"]["gemini_api"].as_str().is_some());
+    assert!(json["checks"]["smtp_brevo"].as_str().is_some());
+    assert!(json["checks"]["google_oauth"].as_str().is_some());
+    // DB should be connected since we have a real pool
+    assert_eq!(json["checks"]["database"], "connected");
+}
+
 // ═══════════════════════════════════════════════════════════
 //  Auth Routes Structure Tests (with DB)
 // ═══════════════════════════════════════════════════════════
@@ -110,7 +152,8 @@ async fn test_protected_routes_require_auth() {
         "/api/notes",
         "/api/chats",
         "/api/logs/auth",
-        "/api/logs/activity"
+        "/api/logs/activity",
+        "/api/logs/admin"
     ];
 
     for route in &protected_routes {

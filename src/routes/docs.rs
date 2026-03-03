@@ -103,7 +103,7 @@ async fn docs_page(State(state): State<AppState>, Query(q): Query<DocsQuery>) ->
             </a>
             <a class="card" href="/docs/logs?password={pw}">
                 <h3><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Logs</h3>
-                <p>Authentication &amp; activity audit logs</p>
+                <p>Auth logs (both roles), user activity logs, admin action logs</p>
             </a>
         </div>
 
@@ -134,7 +134,7 @@ async fn docs_page(State(state): State<AppState>, Query(q): Query<DocsQuery>) ->
             <tr><td><code>AuthUser</code></td><td>Valid JWT</td><td>GET /me, resend-verification, logs</td></tr>
             <tr><td><code>VerifiedUser</code></td><td>JWT + verified email</td><td>Onboarding, profile update</td></tr>
             <tr><td><code>FullUser</code></td><td>JWT + verified + onboarded</td><td>Mood, analytics, reports, notes, chats</td></tr>
-            <tr><td><code>AdminUser</code></td><td>JWT + verified + admin role</td><td>Content management (create, update, delete)</td></tr>
+            <tr><td><code>AdminUser</code></td><td>JWT + verified + admin role</td><td>Content management, admin action logs</td></tr>
         </table>
 
         <h2><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/></svg> Response Format</h2>
@@ -161,6 +161,37 @@ async function api(path, options = {{}}) {{
 // Usage:
 // const {{ url }} = await api('/api/auth/google/url');
 // const {{ data }} = await api('/api/mood/today');</code></pre>
+        </details>
+
+        <h2><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> Health Check</h2>
+        <p><strong>GET</strong> <code>/health</code> &mdash; No authentication required. Checks connectivity to the database and all third-party services.</p>
+        <pre>{{
+  "success": true,
+  "status": "healthy",          // "healthy" | "degraded"
+  "service": "bsdy-api",
+  "version": "{version}",
+  "checks": {{
+    "database": "connected",    // "connected" | "disconnected"
+    "gemini_api": "reachable",  // "reachable" | "unreachable"
+    "smtp_brevo": "reachable",  // "reachable" | "unreachable"
+    "google_oauth": "reachable" // "reachable" | "unreachable"
+  }}
+}}</pre>
+        <details>
+            <summary>JavaScript Example</summary>
+            <pre><code class="lang-js">const res = await fetch('/health');
+const data = await res.json();
+
+if (data.status === 'healthy') {{
+  console.log('All systems operational');
+}} else {{
+  console.warn('Degraded:', data.checks);
+  // Check individual services
+  Object.entries(data.checks).forEach(([svc, status]) => {{
+    if (status !== 'connected' && status !== 'reachable')
+      console.error(`${{svc}}: ${{status}}`);
+  }});
+}}</code></pre>
         </details>
         "#,
         version = env!("CARGO_PKG_VERSION"),
@@ -1140,6 +1171,15 @@ async fn docs_logs(State(state): State<AppState>, Query(q): Query<DocsQuery>) ->
         <p><a href="/docs?password={pw}">&larr; Back to Index</a></p>
         <h1><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgb(88,166,255)" stroke-width="2" style="vertical-align:middle;margin-right:6px"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Audit Logs</h1>
 
+        <div class="info-card">
+            <h3>Log Separation by Role</h3>
+            <ul>
+                <li><strong>Auth Logs</strong> (<code>user_auth_logs</code>) &mdash; login, logout, token refresh, email verification events for <em>both</em> roles.</li>
+                <li><strong>Activity Logs</strong> (<code>user_activity_logs</code>) &mdash; CRUD actions by <em>basic</em> role users (mood, notes, chats, etc.).</li>
+                <li><strong>Admin Action Logs</strong> (<code>admin_action_logs</code>) &mdash; Admin-only actions like content management. Requires <code>AdminUser</code>.</li>
+            </ul>
+        </div>
+
         {blocks}
         "#,
         pw = pw,
@@ -1148,7 +1188,7 @@ async fn docs_logs(State(state): State<AppState>, Query(q): Query<DocsQuery>) ->
                 "GET",
                 "/api/logs/auth?page=1&amp;per_page=20",
                 "AuthUser",
-                "Paginated authentication event log (login, email_verify, verification_sent).",
+                "Paginated authentication event log (login, email_verify, verification_sent). Available to both basic and admin roles.",
                 "// Query params: page (default 1), per_page (default 20, max 100)",
                 r#"{{
   "success": true,
@@ -1182,7 +1222,7 @@ data.data.data.forEach(log => {{
                 "GET",
                 "/api/logs/activity?page=1&amp;per_page=20&amp;feature=mood_tracker",
                 "AuthUser",
-                "Paginated activity log. Optionally filter by feature.",
+                "Paginated activity log for basic role users. Optionally filter by feature (mood_tracker, chat, notes, etc.).",
                 "// Query params: page, per_page, feature (optional)",
                 r#"{{
   "success": true,
@@ -1210,6 +1250,41 @@ const res = await fetch('/api/logs/activity?page=1&per_page=20&feature=mood_trac
 const data = await res.json();
 data.data.data.forEach(log => {{
   console.log(`[${{log.feature}}] ${{log.action}} ${{log.entity_type}} ${{log.entity_id}}`);
+}});"#
+            ),
+            endpoint(
+                "GET",
+                "/api/logs/admin?page=1&amp;per_page=20&amp;feature=content",
+                "AdminUser",
+                "Paginated admin action log. Lists all admin actions (content create/update/delete, etc.). Requires admin role. Optionally filter by feature.",
+                "// Query params: page, per_page, feature (optional)",
+                r#"{{
+  "success": true,
+  "data": {{
+    "data": [
+      {{
+        "id": "uuid",
+        "admin_id": "uuid",
+        "action": "create",
+        "feature": "content",
+        "entity_type": "content",
+        "entity_id": "uuid",
+        "details": null,
+        "created_at": "..."
+      }}
+    ],
+    "total": 32,
+    "page": 1,
+    "per_page": 20
+  }}
+}}"#,
+                r#"const token = localStorage.getItem('token'); // admin JWT
+const res = await fetch('/api/logs/admin?page=1&per_page=20&feature=content', {{
+  headers: {{ 'Authorization': `Bearer ${{token}}` }}
+}});
+const data = await res.json();
+data.data.data.forEach(log => {{
+  console.log(`Admin ${{log.admin_id}}: [${{log.feature}}] ${{log.action}} ${{log.entity_type}} ${{log.entity_id}}`);
 }});"#
             ),
         ].join("\n")
@@ -1537,17 +1612,49 @@ async fn docs_playground(State(state): State<AppState>, Query(q): Query<DocsQuer
 
             <div class="pg-section">
                 <h4>Quick Fill Presets</h4>
+                <p style="font-size:0.8em;color:var(--text-muted);margin-bottom:0.5rem;">Replace <code>{{id}}</code> placeholders with real IDs from your data.</p>
+                <h5 style="margin:0.6rem 0 0.3rem;font-size:0.8em;color:var(--green);">GET</h5>
                 <div class="pg-presets">
                     <button onclick="pgPreset('GET','/health','','')">Health Check</button>
                     <button onclick="pgPreset('GET','/api/auth/google/url','','')">Get OAuth URL</button>
                     <button onclick="pgPreset('GET','/api/auth/me','','')">Get Profile</button>
-                    <button onclick="pgPreset('POST','/api/mood','','{pg_mood}')">Log Mood</button>
                     <button onclick="pgPreset('GET','/api/mood/today','','')">Today&apos;s Mood</button>
+                    <button onclick="pgPreset('GET','/api/mood','','')">List Moods</button>
                     <button onclick="pgPreset('GET','/api/notes?limit=10','','')">List Notes</button>
-                    <button onclick="pgPreset('POST','/api/chats','','{pg_chats}')">Create Chat</button>
+                    <button onclick="pgPreset('GET','/api/chats','','')">List Chats</button>
                     <button onclick="pgPreset('GET','/api/content?limit=10','','')">List Content</button>
+                    <button onclick="pgPreset('GET','/api/analytics','','')">List Analytics</button>
+                    <button onclick="pgPreset('GET','/api/reports','','')">List Reports</button>
+                    <button onclick="pgPreset('GET','/api/logs/auth?page=1&amp;per_page=20','','')">Auth Logs</button>
+                    <button onclick="pgPreset('GET','/api/logs/activity?page=1&amp;per_page=20','','')">Activity Logs</button>
+                    <button onclick="pgPreset('GET','/api/logs/admin?page=1&amp;per_page=20','','')">Admin Logs</button>
+                </div>
+                <h5 style="margin:0.6rem 0 0.3rem;font-size:0.8em;color:var(--accent);">POST</h5>
+                <div class="pg-presets">
+                    <button onclick="pgPreset('POST','/api/auth/google/callback','','{pg_google_callback}')">Google Callback</button>
+                    <button onclick="pgPreset('POST','/api/auth/resend-verification','','')">Resend Verification</button>
+                    <button onclick="pgPreset('POST','/api/mood','','{pg_mood}')">Log Mood</button>
+                    <button onclick="pgPreset('POST','/api/notes','','{pg_create_note}')">Create Note</button>
+                    <button onclick="pgPreset('POST','/api/chats','','{pg_chats}')">Create Chat</button>
+                    <button onclick="pgPreset('POST','/api/chats/{{chat_id}}/messages','','{pg_send_message}')">Send Message</button>
+                    <button onclick="pgPreset('POST','/api/content','','{pg_create_content}')">Create Content</button>
                     <button onclick="pgPreset('POST','/api/analytics/generate','','{pg_analytics}')">Generate Analytics</button>
                     <button onclick="pgPreset('POST','/api/reports/generate','','{pg_reports}')">Generate Report</button>
+                    <button onclick="pgPreset('POST','/api/onboarding/baseline','','{pg_baseline}')">Save Baseline</button>
+                </div>
+                <h5 style="margin:0.6rem 0 0.3rem;font-size:0.8em;color:var(--yellow);">PUT</h5>
+                <div class="pg-presets">
+                    <button onclick="pgPreset('PUT','/api/auth/me','','{pg_update_profile}')">Update Profile</button>
+                    <button onclick="pgPreset('PUT','/api/notes/{{note_id}}','','{pg_update_note}')">Update Note</button>
+                    <button onclick="pgPreset('PUT','/api/chats/{{chat_id}}','','{pg_update_chat}')">Update Chat</button>
+                    <button onclick="pgPreset('PUT','/api/content/{{content_id}}','','{pg_update_content}')">Update Content</button>
+                    <button onclick="pgPreset('PUT','/api/onboarding/baseline','','{pg_baseline}')">Update Baseline</button>
+                </div>
+                <h5 style="margin:0.6rem 0 0.3rem;font-size:0.8em;color:var(--red);">DELETE</h5>
+                <div class="pg-presets">
+                    <button onclick="pgPreset('DELETE','/api/notes/{{note_id}}','','')">Delete Note</button>
+                    <button onclick="pgPreset('DELETE','/api/chats/{{chat_id}}','','')">Delete Chat</button>
+                    <button onclick="pgPreset('DELETE','/api/content/{{content_id}}','','')">Delete Content</button>
                 </div>
             </div>
         </div>
@@ -1623,10 +1730,19 @@ async fn docs_playground(State(state): State<AppState>, Query(q): Query<DocsQuer
         </script>
         "#,
         pw = pw,
+        pg_google_callback = r#"{\n  \"code\": \"4/0AY0e-g7...\"\n}"#,
         pg_mood = r#"{\n  \"mood_score\": 7,\n  \"energy_level\": 6,\n  \"anxiety_level\": 3,\n  \"stress_level\": 4,\n  \"sleep_hours\": 7.5,\n  \"sleep_quality\": 7,\n  \"appetite\": \"normal\",\n  \"social_interaction\": true,\n  \"exercise_done\": false,\n  \"notes\": \"Felt productive today\"\n}"#,
+        pg_create_note = r#"{\n  \"title\": \"Breathing Exercise\",\n  \"content\": \"Box breathing: inhale 4s, hold 4s, exhale 4s, hold 4s\",\n  \"label\": \"coping\",\n  \"is_pinned\": false\n}"#,
+        pg_update_note = r#"{\n  \"title\": \"Updated Title\",\n  \"content\": \"Updated content\",\n  \"label\": \"wellness\",\n  \"is_pinned\": true\n}"#,
         pg_chats = r#"{\n  \"chat_type\": \"companion\"\n}"#,
+        pg_send_message = r#"{\n  \"message\": \"How have I been feeling this week?\"\n}"#,
+        pg_update_chat = r#"{\n  \"title\": \"Renamed Chat\",\n  \"is_active\": true\n}"#,
+        pg_create_content = r#"{\n  \"title\": \"My First Article\",\n  \"body\": \"Full article content goes here...\",\n  \"excerpt\": \"A brief summary\",\n  \"status\": \"draft\"\n}"#,
+        pg_update_content = r#"{\n  \"title\": \"Updated Title\",\n  \"body\": \"Updated body content\",\n  \"status\": \"published\"\n}"#,
+        pg_update_profile = r#"{\n  \"username\": \"newusername\",\n  \"name\": \"New Display Name\",\n  \"birth\": \"2000-01-15\"\n}"#,
         pg_analytics = r#"{\n  \"period_type\": \"weekly\"\n}"#,
-        pg_reports = r#"{\n  \"report_type\": \"weekly\",\n  \"send_email\": false\n}"#
+        pg_reports = r#"{\n  \"report_type\": \"weekly\",\n  \"send_email\": false\n}"#,
+        pg_baseline = r#"{\n  \"stress_level\": \"moderate\",\n  \"anxiety_level\": \"mild\",\n  \"depression_level\": \"minimal\",\n  \"sleep_quality\": \"good\",\n  \"social_support\": \"strong\",\n  \"coping_style\": \"problem-focused\",\n  \"personality_traits\": \"introverted, analytical\",\n  \"mental_health_history\": \"No significant history\",\n  \"therapy_status\": \"not_in_therapy\"\n}"#
     );
 
     Html(render_page("API Playground &mdash; BSDY Docs", &body)).into_response()
@@ -1972,6 +2088,18 @@ fn render_page(title: &str, body: &str) -> String {
             margin-top: 4rem;
         }}
         .error-card h2 {{ color: var(--red); border: none; }}
+
+        /* Info card */
+        .info-card {{
+            background: rgba(88,166,255,0.06);
+            border: 1px solid rgba(88,166,255,0.3);
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            margin: 1rem 0;
+        }}
+        .info-card h3 {{ color: var(--accent); margin-top: 0; margin-bottom: 0.5rem; font-size: 0.95em; }}
+        .info-card ul {{ margin: 0; padding-left: 1.2rem; }}
+        .info-card li {{ margin: 0.3rem 0; font-size: 0.9em; }}
 
         /* Playground */
         .playground {{ margin-top: 1rem; }}

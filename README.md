@@ -56,7 +56,7 @@ Mental Companion & Tracker Platform — backend API built with **Rust / Axum**.
 - **Background scheduler** for automated report generation
 - **Interactive API docs** with JavaScript code examples, live API playground, and in-browser test runner
 - **Dual mode**: `internal` (relaxed) and `external` (API-key gated)
-- **Activity & auth logging** for auditing
+- **Activity, auth & admin action logging** for auditing (role-separated)
 - **Graceful shutdown** with Ctrl+C / SIGTERM handling
 
 ---
@@ -86,7 +86,8 @@ bsdy_api/
 ├── .env.example              # Environment template (copy to .env)
 ├── migrations/
 │   ├── 001_initial_schema.sql
-│   └── 002_admin_content.sql
+│   ├── 002_admin_content.sql
+│   └── 003_admin_action_logs.sql
 ├── src/
 │   ├── main.rs               # Entry point — server startup
 │   ├── lib.rs                # Public module re-exports
@@ -98,14 +99,14 @@ bsdy_api/
 │   ├── middleware/
 │   │   ├── api_key.rs        # API-key gate for external mode
 │   │   ├── auth.rs           # JWT AuthUser / VerifiedUser / AdminUser extractors
-│   │   └── activity_log.rs   # Request logging helpers
+│   │   └── activity_log.rs   # Request logging helpers (user + admin)
 │   ├── models/
 │   │   ├── user.rs           # UserRow (with role), Claims, AuthResponse, etc.
 │   │   ├── mental.rs         # Baseline assessment models
 │   │   ├── chat.rs           # Chat & message models
 │   │   ├── note.rs           # Note models
 │   │   ├── content.rs        # Content/blog models
-│   │   └── log.rs            # Auth & activity log models
+│   │   └── log.rs            # Auth, activity & admin action log models
 │   ├── routes/
 │   │   ├── mod.rs            # build_router() — assembles all routes
 │   │   ├── auth.rs           # /api/auth/*
@@ -218,8 +219,13 @@ Expected response:
   "success": true,
   "status": "healthy",
   "service": "bsdy-api",
-  "version": "0.3.0",
-  "database": "connected"
+  "version": "0.3.5",
+  "checks": {
+    "database": "connected",
+    "gemini_api": "reachable",
+    "smtp_brevo": "reachable",
+    "google_oauth": "reachable"
+  }
 }
 ```
 
@@ -231,9 +237,9 @@ All protected routes require a `Authorization: Bearer <JWT>` header. Routes unde
 
 ### Health
 
-| Method | Path      | Auth | Description                    |
-| ------ | --------- | ---- | ------------------------------ |
-| GET    | `/health` | No   | Server & database health check |
+| Method | Path      | Auth | Description                                                                   |
+| ------ | --------- | ---- | ----------------------------------------------------------------------------- |
+| GET    | `/health` | No   | Server, database & third-party API health checks (Gemini, SMTP, Google OAuth) |
 
 ### Authentication
 
@@ -380,10 +386,17 @@ Content is a blog/article system. **Read access is public** (published items onl
 
 ### Logs
 
-| Method | Path                 | Auth           | Description             |
-| ------ | -------------------- | -------------- | ----------------------- |
-| GET    | `/api/logs/auth`     | JWT + Verified | Get authentication logs |
-| GET    | `/api/logs/activity` | JWT + Verified | Get activity logs       |
+Logs are separated by role:
+
+- **Auth logs** (`user_auth_logs`) — login, logout, token refresh, email verification events for **both** roles
+- **Activity logs** (`user_activity_logs`) — CRUD actions by **basic** role users (mood, notes, chats, etc.)
+- **Admin action logs** (`admin_action_logs`) — Admin-only actions like content management
+
+| Method | Path                 | Auth           | Description                          |
+| ------ | -------------------- | -------------- | ------------------------------------ |
+| GET    | `/api/logs/auth`     | JWT + Verified | Get authentication logs (both roles) |
+| GET    | `/api/logs/activity` | JWT + Verified | Get user activity logs (basic role)  |
+| GET    | `/api/logs/admin`    | JWT + Admin    | Get admin action logs (admin only)   |
 
 ### Documentation Pages
 
@@ -437,10 +450,10 @@ The docs UI (`/docs?password=...`) includes developer tools beyond static API re
 
 ## User Roles
 
-| Role    | Default | Permissions                                                                       |
-| ------- | ------- | --------------------------------------------------------------------------------- |
-| `basic` | Yes     | All user features: mood, chats, notes, analytics, reports. Read published content |
-| `admin` | No      | Everything `basic` can do + full content management (CRUD + image upload)         |
+| Role    | Default | Permissions                                                                                   |
+| ------- | ------- | --------------------------------------------------------------------------------------------- |
+| `basic` | Yes     | All user features: mood, chats, notes, analytics, reports. Read published content             |
+| `admin` | No      | Everything `basic` can do + full content management (CRUD + image upload) + admin action logs |
 
 Every newly registered account is assigned the `basic` role. Admin accounts must be promoted manually via database:
 
@@ -515,16 +528,16 @@ cargo test test_email_live_send_verification -- --ignored --nocapture
 
 ### Test Categories
 
-| File                    | Tests                                                                | Requires                                                   |
-| ----------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `test_config_crypto.rs` | Config parsing, env defaults, crypto encrypt/decrypt, key derivation | Nothing                                                    |
-| `test_errors_models.rs` | Error types, model serialization, agent/content models, role tests   | Nothing                                                    |
-| `test_auth_chat.rs`     | JWT, auth service, chat models, role checks, slug generation         | Nothing                                                    |
-| `test_database.rs`      | DB pool, migrations, CRUD on all tables                              | MariaDB                                                    |
-| `test_gemini.rs`        | Request/response parsing (unit), live AI calls (ignored)             | Gemini API key (ignored tests)                             |
-| `test_email.rs`         | Template rendering (unit), live SMTP send (ignored)                  | Brevo credentials + `TEST_EMAIL_RECIPIENT` (ignored tests) |
-| `test_services.rs`      | Service integration (mood, analytics, reports, agents, content CRUD) | MariaDB                                                    |
-| `test_routes.rs`        | HTTP endpoints, auth guards, content routes, scheduler cron          | MariaDB (ignored), nothing (cron tests)                    |
+| File                    | Tests                                                                                           | Requires                                                   |
+| ----------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `test_config_crypto.rs` | Config parsing, env defaults, crypto encrypt/decrypt, key derivation                            | Nothing                                                    |
+| `test_errors_models.rs` | Error types, model serialization, agent/content models, log models, role tests                  | Nothing                                                    |
+| `test_auth_chat.rs`     | JWT, auth service, chat models, role checks, slug generation                                    | Nothing                                                    |
+| `test_database.rs`      | DB pool, migrations, CRUD on all tables                                                         | MariaDB                                                    |
+| `test_gemini.rs`        | Request/response parsing (unit), live AI calls (ignored)                                        | Gemini API key (ignored tests)                             |
+| `test_email.rs`         | Template rendering (unit), live SMTP send (ignored)                                             | Brevo credentials + `TEST_EMAIL_RECIPIENT` (ignored tests) |
+| `test_services.rs`      | Service integration (mood, analytics, reports, agents, content CRUD)                            | MariaDB                                                    |
+| `test_routes.rs`        | HTTP endpoints, auth guards, health structure, content routes, admin log guards, scheduler cron | MariaDB (ignored), nothing (cron tests)                    |
 
 Tests marked `#[ignore]` require live external services (database, SMTP, Gemini API). Run them with `--include-ignored` or `--ignored`.
 

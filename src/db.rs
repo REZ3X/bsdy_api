@@ -20,6 +20,7 @@ pub async fn run_migrations(pool: &MySqlPool) -> Result<(), anyhow::Error> {
     let migrations: &[&str] = &[
         include_str!("../migrations/001_initial_schema.sql"),
         include_str!("../migrations/002_admin_content.sql"),
+        include_str!("../migrations/003_admin_action_logs.sql"),
     ];
 
     for migration_sql in migrations {

@@ -6,3 +6,4 @@ pub use auth::AuthUser;
 pub use auth::AdminUser;
 pub use api_key::api_key_layer;
 pub use activity_log::log_activity;
+pub use activity_log::log_admin_activity;

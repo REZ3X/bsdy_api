@@ -111,7 +111,7 @@ impl AuthService {
             .unwrap_or("user")
             .to_lowercase()
             .chars()
-            .filter(|c| (c.is_alphanumeric() || *c == '_'))
+            .filter(|c| c.is_alphanumeric() || *c == '_')
             .take(30)
             .collect::<String>();
 
@@ -208,9 +208,9 @@ impl AuthService {
             .map(|_| {
                 let idx = rng.gen_range(0..62usize);
                 match idx {
-                    0..=25 => (b'A' + (idx as u8)) as char,
-                    26..=51 => (b'a' + ((idx - 26) as u8)) as char,
-                    _ => (b'0' + ((idx - 52) as u8)) as char,
+                    0..=25 => (b'A' + idx as u8) as char,
+                    26..=51 => (b'a' + (idx - 26) as u8) as char,
+                    _ => (b'0' + (idx - 52) as u8) as char,
                 }
             })
             .collect()

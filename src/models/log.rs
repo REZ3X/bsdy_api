@@ -51,6 +51,33 @@ pub struct ActivityLogResponse {
     pub created_at: String,
 }
 
+// ── Admin Action Log ────────────────────────────────────────
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AdminActionLogRow {
+    pub id: String,
+    pub admin_id: String,
+    pub action: String,
+    pub feature: String,
+    pub entity_type: String,
+    pub entity_id: Option<String>,
+    pub details: Option<String>,
+    pub ip_address: Option<String>,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AdminActionLogResponse {
+    pub id: String,
+    pub admin_id: String,
+    pub action: String,
+    pub feature: String,
+    pub entity_type: String,
+    pub entity_id: Option<String>,
+    pub details: Option<String>,
+    pub created_at: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct PaginatedResponse<T: Serialize> {
     pub data: Vec<T>,

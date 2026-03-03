@@ -5,6 +5,7 @@ use bsdy_api::error::AppError;
 use bsdy_api::models::user::*;
 use bsdy_api::models::chat::*;
 use bsdy_api::models::note::*;
+use bsdy_api::models::log::*;
 use chrono::NaiveDateTime;
 
 // ═══════════════════════════════════════════════════════════
@@ -600,4 +601,217 @@ fn test_user_response_basic_role_default() {
 
     let resp = UserResponse::from(&user);
     assert_eq!(resp.role, "basic");
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Admin Action Log Model Tests
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn test_admin_action_log_row_fields() {
+    let now = NaiveDateTime::parse_from_str("2026-06-15 14:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
+    let row = AdminActionLogRow {
+        id: "al-001".into(),
+        admin_id: "u-admin-1".into(),
+        action: "create".into(),
+        feature: "content".into(),
+        entity_type: "content".into(),
+        entity_id: Some("c-123".into()),
+        details: Some("Created article 'Hello World'".into()),
+        ip_address: Some("192.168.1.1".into()),
+        created_at: now,
+    };
+
+    assert_eq!(row.id, "al-001");
+    assert_eq!(row.admin_id, "u-admin-1");
+    assert_eq!(row.action, "create");
+    assert_eq!(row.feature, "content");
+    assert_eq!(row.entity_type, "content");
+    assert_eq!(row.entity_id.as_deref(), Some("c-123"));
+    assert_eq!(row.details.as_deref(), Some("Created article 'Hello World'"));
+    assert_eq!(row.ip_address.as_deref(), Some("192.168.1.1"));
+}
+
+#[test]
+fn test_admin_action_log_response_fields() {
+    let resp = AdminActionLogResponse {
+        id: "al-002".into(),
+        admin_id: "u-admin-2".into(),
+        action: "delete".into(),
+        feature: "content".into(),
+        entity_type: "content".into(),
+        entity_id: Some("c-456".into()),
+        details: None,
+        created_at: "2026-06-15 14:30:00".into(),
+    };
+
+    assert_eq!(resp.id, "al-002");
+    assert_eq!(resp.admin_id, "u-admin-2");
+    assert_eq!(resp.action, "delete");
+    assert_eq!(resp.entity_id.as_deref(), Some("c-456"));
+    assert!(resp.details.is_none());
+
+    // Verify it serializes to JSON correctly
+    let json = serde_json::to_value(&resp).unwrap();
+    assert_eq!(json["admin_id"], "u-admin-2");
+    assert_eq!(json["feature"], "content");
+}
+
+#[test]
+fn test_admin_action_log_response_serializes_to_json() {
+    let resp = AdminActionLogResponse {
+        id: "al-003".into(),
+        admin_id: "u-admin-1".into(),
+        action: "update".into(),
+        feature: "content".into(),
+        entity_type: "content_cover".into(),
+        entity_id: Some("c-789".into()),
+        details: Some("Uploaded new cover image".into()),
+        created_at: "2026-06-15 15:00:00".into(),
+    };
+
+    let json = serde_json::to_string(&resp).unwrap();
+    assert!(json.contains("\"admin_id\":\"u-admin-1\""));
+    assert!(json.contains("\"action\":\"update\""));
+    assert!(json.contains("content_cover"));
+    assert!(json.contains("Uploaded new cover image"));
+}
+
+#[test]
+fn test_admin_action_log_optional_fields_none() {
+    let now = NaiveDateTime::parse_from_str("2026-06-15 14:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
+    let row = AdminActionLogRow {
+        id: "al-004".into(),
+        admin_id: "u-admin-1".into(),
+        action: "read".into(),
+        feature: "content".into(),
+        entity_type: "content".into(),
+        entity_id: None,
+        details: None,
+        ip_address: None,
+        created_at: now,
+    };
+
+    assert!(row.entity_id.is_none());
+    assert!(row.details.is_none());
+    assert!(row.ip_address.is_none());
+}
+
+#[test]
+fn test_paginated_response_admin_action_logs() {
+    let logs = vec![
+        AdminActionLogResponse {
+            id: "al-100".into(),
+            admin_id: "u-admin-1".into(),
+            action: "create".into(),
+            feature: "content".into(),
+            entity_type: "content".into(),
+            entity_id: Some("c-new".into()),
+            details: None,
+            created_at: "2026-06-15 10:00:00".into(),
+        },
+        AdminActionLogResponse {
+            id: "al-101".into(),
+            admin_id: "u-admin-1".into(),
+            action: "update".into(),
+            feature: "content".into(),
+            entity_type: "content".into(),
+            entity_id: Some("c-existing".into()),
+            details: Some("Changed status to published".into()),
+            created_at: "2026-06-15 11:00:00".into(),
+        }
+    ];
+
+    let paginated = PaginatedResponse {
+        data: logs,
+        total: 50,
+        page: 1,
+        per_page: 20,
+    };
+
+    assert_eq!(paginated.data.len(), 2);
+    assert_eq!(paginated.total, 50);
+    assert_eq!(paginated.page, 1);
+    assert_eq!(paginated.per_page, 20);
+
+    // Verify the whole thing serializes
+    let json = serde_json::to_value(&paginated).unwrap();
+    assert_eq!(json["total"], 50);
+    assert_eq!(json["data"][0]["action"], "create");
+    assert_eq!(json["data"][1]["action"], "update");
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Auth & Activity Log Model Tests
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn test_auth_log_row_fields() {
+    let now = NaiveDateTime::parse_from_str("2026-06-15 14:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
+    let row = AuthLogRow {
+        id: "auth-001".into(),
+        user_id: "u-1".into(),
+        action: "login".into(),
+        ip_address: Some("10.0.0.1".into()),
+        user_agent: Some("Mozilla/5.0".into()),
+        success: true,
+        failure_reason: None,
+        created_at: now,
+    };
+
+    assert_eq!(row.action, "login");
+    assert!(row.success);
+    assert!(row.failure_reason.is_none());
+}
+
+#[test]
+fn test_auth_log_response_serialization() {
+    let resp = AuthLogResponse {
+        id: "auth-002".into(),
+        action: "email_verify".into(),
+        ip_address: None,
+        success: true,
+        failure_reason: None,
+        created_at: "2026-06-15 14:30:00".into(),
+    };
+
+    let json = serde_json::to_value(&resp).unwrap();
+    assert_eq!(json["action"], "email_verify");
+    assert_eq!(json["success"], true);
+}
+
+#[test]
+fn test_activity_log_row_fields() {
+    let now = NaiveDateTime::parse_from_str("2026-06-15 14:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
+    let row = ActivityLogRow {
+        id: "act-001".into(),
+        user_id: "u-1".into(),
+        action: "create".into(),
+        feature: "mood_tracker".into(),
+        entity_type: "mood_entry".into(),
+        entity_id: Some("m-123".into()),
+        details: None,
+        ip_address: None,
+        created_at: now,
+    };
+
+    assert_eq!(row.feature, "mood_tracker");
+    assert_eq!(row.entity_type, "mood_entry");
+}
+
+#[test]
+fn test_activity_log_response_serialization() {
+    let resp = ActivityLogResponse {
+        id: "act-002".into(),
+        action: "update".into(),
+        feature: "notes".into(),
+        entity_type: "note".into(),
+        entity_id: Some("n-456".into()),
+        details: Some("Updated title".into()),
+        created_at: "2026-06-15 14:30:00".into(),
+    };
+
+    let json = serde_json::to_value(&resp).unwrap();
+    assert_eq!(json["feature"], "notes");
+    assert_eq!(json["details"], "Updated title");
 }

@@ -1,7 +1,7 @@
 use sqlx::MySqlPool;
 use uuid::Uuid;
 
-/// Log user activity for security audit trail.
+/// Log user activity for security audit trail (basic role users).
 pub async fn log_activity(
     pool: &MySqlPool,
     user_id: &str,
@@ -36,7 +36,42 @@ pub async fn log_activity(
     }
 }
 
-/// Log authentication events.
+/// Log admin actions (content management, etc.) into the admin_action_logs table.
+pub async fn log_admin_activity(
+    pool: &MySqlPool,
+    admin_id: &str,
+    action: &str, // create | read | update | delete
+    feature: &str, // e.g., "content"
+    entity_type: &str,
+    entity_id: Option<&str>,
+    details: Option<&str>,
+    ip_address: Option<&str>
+) {
+    let id = Uuid::new_v4().to_string();
+
+    let result = sqlx
+        ::query(
+            r#"
+        INSERT INTO admin_action_logs (id, admin_id, action, feature, entity_type, entity_id, details, ip_address)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        "#
+        )
+        .bind(&id)
+        .bind(admin_id)
+        .bind(action)
+        .bind(feature)
+        .bind(entity_type)
+        .bind(entity_id)
+        .bind(details)
+        .bind(ip_address)
+        .execute(pool).await;
+
+    if let Err(e) = result {
+        tracing::error!("Failed to log admin activity: {}", e);
+    }
+}
+
+/// Log authentication events (both roles).
 pub async fn log_auth_event(
     pool: &MySqlPool,
     user_id: &str,
