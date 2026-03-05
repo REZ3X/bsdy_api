@@ -21,7 +21,7 @@ use crate::{
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/google/url", get(google_auth_url))
-        .route("/google/callback", post(google_callback))
+        .route("/google/callback", get(google_callback))
         .route("/verify-email", get(verify_email))
         .route("/resend-verification", post(resend_verification))
         .route("/me", get(get_me))
@@ -35,11 +35,11 @@ async fn google_auth_url(State(state): State<AppState>) -> Result<Json<Value>> {
     Ok(Json(json!({ "success": true, "url": url })))
 }
 
-// ── POST /api/auth/google/callback ──────────────────────────
+// ── GET /api/auth/google/callback?code=... ──────────────────
 
 async fn google_callback(
     State(state): State<AppState>,
-    Json(req): Json<GoogleCallbackRequest>
+    Query(req): Query<GoogleCallbackRequest>
 ) -> Result<Json<Value>> {
     let google_user = AuthService::exchange_code(
         &req.code,

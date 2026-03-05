@@ -123,7 +123,7 @@ async fn docs_page(State(state): State<AppState>, Query(q): Query<DocsQuery>) ->
         <ol>
             <li><strong>GET</strong> <code>/api/auth/google/url</code> &rarr; redirect user to Google consent</li>
             <li>User consents &rarr; Google redirects with <code>code</code></li>
-            <li><strong>POST</strong> <code>/api/auth/google/callback</code> with <code>{{"code":"..."}}</code> &rarr; returns JWT + user</li>
+            <li><strong>GET</strong> <code>/api/auth/google/callback?code=...</code> &rarr; Google redirects here, returns JWT + user</li>
             <li>Use JWT as <code>Authorization: Bearer &lt;token&gt;</code> for all subsequent requests</li>
             <li>Verify email &rarr; complete onboarding &rarr; full access</li>
         </ol>
@@ -236,11 +236,11 @@ const data = await res.json();
 window.location.href = data.url;"#
             ),
             endpoint(
-                "POST",
-                "/api/auth/google/callback",
+                "GET",
+                "/api/auth/google/callback?code=...",
                 "None",
-                "Exchange the Google auth code for a JWT token and user profile. Sends verification email for new users.",
-                r#"{{ "code": "4/0AY0e-g7..." }}"#,
+                "Exchange the Google auth code for a JWT token and user profile. Google redirects the browser here with the code as a query parameter. Sends verification email for new users.",
+                "",
                 r#"{{
   "success": true,
   "data": {{
@@ -260,14 +260,11 @@ window.location.href = data.url;"#
     "is_new_user": true
   }}
 }}"#,
-                r#"// Exchange the auth code from Google redirect
+                r#"// Google redirects users here with ?code=... in the URL
 const code = new URLSearchParams(window.location.search).get('code');
 
-const res = await fetch('/api/auth/google/callback', {{
-  method: 'POST',
-  headers: {{ 'Content-Type': 'application/json' }},
-  body: JSON.stringify({{ code }})
-}});
+// The backend handles this as a GET with query parameter
+const res = await fetch(`/api/auth/google/callback?code=${{encodeURIComponent(code)}}`);
 const data = await res.json();
 
 // Store the JWT token for subsequent requests
@@ -1631,7 +1628,7 @@ async fn docs_playground(State(state): State<AppState>, Query(q): Query<DocsQuer
                 </div>
                 <h5 style="margin:0.6rem 0 0.3rem;font-size:0.8em;color:var(--accent);">POST</h5>
                 <div class="pg-presets">
-                    <button onclick="pgPreset('POST','/api/auth/google/callback','','{pg_google_callback}')">Google Callback</button>
+                    <button onclick="pgPreset('GET','/api/auth/google/callback?code=4/0AY0e-g7...','','')">Google Callback</button>
                     <button onclick="pgPreset('POST','/api/auth/resend-verification','','')">Resend Verification</button>
                     <button onclick="pgPreset('POST','/api/mood','','{pg_mood}')">Log Mood</button>
                     <button onclick="pgPreset('POST','/api/notes','','{pg_create_note}')">Create Note</button>
@@ -1730,7 +1727,6 @@ async fn docs_playground(State(state): State<AppState>, Query(q): Query<DocsQuer
         </script>
         "#,
         pw = pw,
-        pg_google_callback = r#"{\n  \"code\": \"4/0AY0e-g7...\"\n}"#,
         pg_mood = r#"{\n  \"mood_score\": 7,\n  \"energy_level\": 6,\n  \"anxiety_level\": 3,\n  \"stress_level\": 4,\n  \"sleep_hours\": 7.5,\n  \"sleep_quality\": 7,\n  \"appetite\": \"normal\",\n  \"social_interaction\": true,\n  \"exercise_done\": false,\n  \"notes\": \"Felt productive today\"\n}"#,
         pg_create_note = r#"{\n  \"title\": \"Breathing Exercise\",\n  \"content\": \"Box breathing: inhale 4s, hold 4s, exhale 4s, hold 4s\",\n  \"label\": \"coping\",\n  \"is_pinned\": false\n}"#,
         pg_update_note = r#"{\n  \"title\": \"Updated Title\",\n  \"content\": \"Updated content\",\n  \"label\": \"wellness\",\n  \"is_pinned\": true\n}"#,

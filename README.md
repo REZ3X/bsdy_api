@@ -246,7 +246,7 @@ All protected routes require a `Authorization: Bearer <JWT>` header. Routes unde
 | Method | Path                            | Auth           | Description                  |
 | ------ | ------------------------------- | -------------- | ---------------------------- |
 | GET    | `/api/auth/google/url`          | No             | Get Google OAuth consent URL |
-| POST   | `/api/auth/google/callback`     | No             | Exchange auth code for JWT   |
+| GET    | `/api/auth/google/callback`     | No             | Exchange auth code for JWT   |
 | GET    | `/api/auth/verify-email`        | No             | Verify email via token link  |
 | POST   | `/api/auth/resend-verification` | JWT            | Resend verification email    |
 | GET    | `/api/auth/me`                  | JWT + Verified | Get current user profile     |
@@ -434,7 +434,7 @@ The docs UI (`/docs?password=...`) includes developer tools beyond static API re
 
 2. User completes Google consent in browser
 
-3. Client → POST /api/auth/google/callback  { "code": "<auth_code>" }
+3. Google redirects → GET /api/auth/google/callback?code=<auth_code>
    ← { "token": "<JWT>", "user": { ... }, "is_new_user": true/false }
 
 4. New users receive a verification email automatically
