@@ -9,6 +9,8 @@ struct GeminiRequest {
     system_instruction: Option<SystemInstruction>,
     #[serde(skip_serializing_if = "Option::is_none")]
     generation_config: Option<GenerationConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking_config: Option<ThinkingConfig>,
 }
 
 #[derive(Debug, Serialize)]
@@ -20,6 +22,11 @@ struct SystemInstruction {
 struct GenerationConfig {
     temperature: f32,
     max_output_tokens: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct ThinkingConfig {
+    thinking_level: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -51,6 +58,8 @@ struct ResponseContent {
 #[derive(Debug, Deserialize)]
 struct ResponsePart {
     text: Option<String>,
+    #[serde(default)]
+    thought: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -64,7 +73,7 @@ impl GeminiService {
     pub fn new(api_key: String, model: String) -> Self {
         let client = reqwest::Client
             ::builder()
-            .timeout(std::time::Duration::from_secs(120))
+            .timeout(std::time::Duration::from_secs(300))
             .pool_max_idle_per_host(5)
             .build()
             .expect("Failed to build Gemini HTTP client");
@@ -87,7 +96,7 @@ impl GeminiService {
 
     /// Send a simple text prompt and get back the text response.
     pub async fn generate_text(&self, prompt: &str) -> Result<String> {
-        self.generate_with_system(prompt, None, 0.7, 8192).await
+        self.generate_with_system(prompt, None, 1.0, 8192).await
     }
 
     /// Send a prompt with an optional system instruction.
@@ -110,6 +119,9 @@ impl GeminiService {
                 temperature,
                 max_output_tokens: max_tokens,
             }),
+            thinking_config: Some(ThinkingConfig {
+                thinking_level: "low".into(),
+            }),
         };
 
         let response = self.client.post(&self.endpoint()).json(&body).send().await?;
@@ -122,11 +134,7 @@ impl GeminiService {
 
         let resp: GeminiResponse = response.json().await?;
 
-        resp.candidates
-            .first()
-            .and_then(|c| c.content.parts.first())
-            .and_then(|p| p.text.clone())
-            .ok_or_else(|| anyhow::anyhow!("Empty response from Gemini"))
+        Self::extract_text(&resp)
     }
 
     /// Send a multi-turn conversation history + new user message.
@@ -163,6 +171,9 @@ impl GeminiService {
                 temperature,
                 max_output_tokens: 4096,
             }),
+            thinking_config: Some(ThinkingConfig {
+                thinking_level: "low".into(),
+            }),
         };
 
         let response = self.client.post(&self.endpoint()).json(&body).send().await?;
@@ -175,10 +186,19 @@ impl GeminiService {
 
         let resp: GeminiResponse = response.json().await?;
 
+        Self::extract_text(&resp)
+    }
+
+    /// Extract the actual text response, skipping any thinking parts.
+    fn extract_text(resp: &GeminiResponse) -> Result<String> {
         resp.candidates
             .first()
-            .and_then(|c| c.content.parts.first())
-            .and_then(|p| p.text.clone())
+            .and_then(|c| {
+                c.content.parts
+                    .iter()
+                    .filter(|p| !p.thought.unwrap_or(false))
+                    .find_map(|p| p.text.clone())
+            })
             .ok_or_else(|| anyhow::anyhow!("Empty response from Gemini"))
     }
 

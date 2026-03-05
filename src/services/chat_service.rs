@@ -289,7 +289,7 @@ impl ChatService {
 
         // Call Gemini
         let ai_response = gemini
-            .generate_chat_response(&system_prompt, &history, &req.message, 0.8).await
+            .generate_chat_response(&system_prompt, &history, &req.message, 1.0).await
             .map_err(|e| AppError::InternalError(e.into()))?;
 
         // Save assistant message
