@@ -87,7 +87,7 @@ impl EmailService {
 <body>
 <div class="wrap">
   <div class="card">
-    <h1>Welcome to {app}</h1>
+    <h1>Welcome to Blessedly</h1>
     <p>Hi <strong>{name}</strong>,</p>
     <p>Thank you for joining us. Click the button below to verify your email and activate your account.</p>
     <div style="text-align:center">

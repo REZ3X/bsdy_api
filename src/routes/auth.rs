@@ -61,12 +61,7 @@ async fn google_callback(
     // Send verification email for new users
     if is_new {
         if let Some(ref vtoken) = user.email_verification_token {
-            let verify_url = format!(
-                "{}/api/auth/verify-email?token={}",
-                state.config.app.frontend_url,
-                vtoken
-            );
-            let _ = state.email.send_verification_email(&user.email, &user.name, &verify_url).await;
+            let _ = state.email.send_verification_email(&user.email, &user.name, vtoken).await;
             log_auth_event(&state.db, &user.id, "verification_sent", None, None, true, None).await;
         }
     }
@@ -117,13 +112,8 @@ async fn resend_verification(State(state): State<AppState>, auth: AuthUser) -> R
         .execute(&state.db).await
         .map_err(AppError::DatabaseError)?;
 
-    let verify_url = format!(
-        "{}/api/auth/verify-email?token={}",
-        state.config.app.frontend_url,
-        new_token
-    );
     state.email
-        .send_verification_email(&auth.user.email, &auth.user.name, &verify_url).await
+        .send_verification_email(&auth.user.email, &auth.user.name, &new_token).await
         .map_err(|e| AppError::InternalError(e.into()))?;
 
     log_auth_event(&state.db, &auth.user.id, "verification_sent", None, None, true, None).await;
