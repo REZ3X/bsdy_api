@@ -14,7 +14,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/generate", post(generate_report))
         .route("/", get(get_reports))
-        .route("/{report_id}", get(get_report))
+        .route("/:report_id", get(get_report))
 }
 
 #[derive(Debug, Deserialize)]

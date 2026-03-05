@@ -32,13 +32,13 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         // Public read routes (any authenticated user can read published content)
         .route("/", get(list_contents))
-        .route("/{content_id}", get(get_content))
-        .route("/slug/{slug}", get(get_content_by_slug))
+        .route("/:content_id", get(get_content))
+        .route("/slug/:slug", get(get_content_by_slug))
         // Admin-only management routes
         .route("/", post(create_content))
-        .route("/{content_id}", put(update_content))
-        .route("/{content_id}", delete(delete_content))
-        .route("/{content_id}/cover", post(upload_cover_image))
+        .route("/:content_id", put(update_content))
+        .route("/:content_id", delete(delete_content))
+        .route("/:content_id/cover", post(upload_cover_image))
         .layer(DefaultBodyLimit::max(MAX_UPLOAD_SIZE))
 }
 

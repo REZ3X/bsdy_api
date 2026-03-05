@@ -15,9 +15,9 @@ pub fn routes() -> Router<AppState> {
         .route("/", post(create_note))
         .route("/", get(get_notes))
         .route("/labels", get(get_labels))
-        .route("/{note_id}", get(get_note))
-        .route("/{note_id}", put(update_note))
-        .route("/{note_id}", delete(delete_note))
+        .route("/:note_id", get(get_note))
+        .route("/:note_id", put(update_note))
+        .route("/:note_id", delete(delete_note))
 }
 
 #[derive(Debug, Deserialize)]

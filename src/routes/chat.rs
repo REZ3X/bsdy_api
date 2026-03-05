@@ -14,11 +14,11 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", post(create_chat))
         .route("/", get(list_chats))
-        .route("/{chat_id}", get(get_chat))
-        .route("/{chat_id}", put(update_chat))
-        .route("/{chat_id}", delete(delete_chat))
-        .route("/{chat_id}/messages", get(get_messages))
-        .route("/{chat_id}/messages", post(send_message))
+        .route("/:chat_id", get(get_chat))
+        .route("/:chat_id", put(update_chat))
+        .route("/:chat_id", delete(delete_chat))
+        .route("/:chat_id/messages", get(get_messages))
+        .route("/:chat_id/messages", post(send_message))
 }
 
 #[derive(Debug, Deserialize)]
