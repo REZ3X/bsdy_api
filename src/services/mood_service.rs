@@ -12,6 +12,9 @@ pub struct MoodService;
 
 impl MoodService {
     /// Create a mood entry. Only one per day; if exists, update.
+    const VALID_APPETITE: &'static [&'static str] =
+        &["very_low", "low", "normal", "high", "very_high"];
+
     pub async fn upsert_mood(
         pool: &MySqlPool,
         crypto: &CryptoService,
@@ -21,6 +24,13 @@ impl MoodService {
     ) -> Result<MoodEntryResponse> {
         if req.mood_score < 1 || req.mood_score > 10 {
             return Err(AppError::ValidationError("mood_score must be between 1 and 10".into()));
+        }
+        if let Some(ref appetite) = req.appetite {
+            if !Self::VALID_APPETITE.contains(&appetite.as_str()) {
+                return Err(AppError::ValidationError(
+                    format!("appetite must be one of: {}", Self::VALID_APPETITE.join(", "))
+                ));
+            }
         }
 
         let today = chrono::Local::now().date_naive();
