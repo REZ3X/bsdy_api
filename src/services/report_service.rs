@@ -37,7 +37,7 @@ impl ReportService {
 
         // Gather mood entries for the period
         let mood_entries: Vec<
-            (String, i8, Option<i8>, Option<i8>, Option<i8>, Option<String>)
+            (chrono::NaiveDate, i8, Option<i8>, Option<i8>, Option<i8>, Option<String>)
         > = sqlx
             ::query_as(
                 r#"SELECT entry_date, mood_score, energy_level, anxiety_level, stress_level, appetite

@@ -9,8 +9,6 @@ struct GeminiRequest {
     system_instruction: Option<SystemInstruction>,
     #[serde(skip_serializing_if = "Option::is_none")]
     generation_config: Option<GenerationConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    thinking_config: Option<ThinkingConfig>,
 }
 
 #[derive(Debug, Serialize)]
@@ -22,6 +20,8 @@ struct SystemInstruction {
 struct GenerationConfig {
     temperature: f32,
     max_output_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking_config: Option<ThinkingConfig>,
 }
 
 #[derive(Debug, Serialize)]
@@ -118,9 +118,9 @@ impl GeminiService {
             generation_config: Some(GenerationConfig {
                 temperature,
                 max_output_tokens: max_tokens,
-            }),
-            thinking_config: Some(ThinkingConfig {
-                thinking_level: "low".into(),
+                thinking_config: Some(ThinkingConfig {
+                    thinking_level: "LOW".into(),
+                }),
             }),
         };
 
@@ -170,9 +170,9 @@ impl GeminiService {
             generation_config: Some(GenerationConfig {
                 temperature,
                 max_output_tokens: 4096,
-            }),
-            thinking_config: Some(ThinkingConfig {
-                thinking_level: "low".into(),
+                thinking_config: Some(ThinkingConfig {
+                    thinking_level: "LOW".into(),
+                }),
             }),
         };
 
