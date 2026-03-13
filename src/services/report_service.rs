@@ -35,7 +35,6 @@ impl ReportService {
 
         let (period_start, period_end) = Self::resolve_period(report_type, req)?;
 
-        // Gather mood entries for the period
         let mood_entries: Vec<
             (chrono::NaiveDate, i8, Option<i8>, Option<i8>, Option<i8>, Option<String>)
         > = sqlx
@@ -51,7 +50,6 @@ impl ReportService {
             .fetch_all(pool).await
             .map_err(AppError::DatabaseError)?;
 
-        // Gather analytics summaries if available
         let analytics: Vec<AnalyticsSummaryRow> = sqlx
             ::query_as(
                 r#"SELECT * FROM mental_analytics_summaries
@@ -142,7 +140,6 @@ Be empathetic, evidence-based, and constructive. Do NOT diagnose. Return ONLY va
             ).await
             .map_err(|e| AppError::InternalError(e.into()))?;
 
-        // Parse the AI response
         let ai_json: serde_json::Value = Self::parse_ai_json(&ai_raw)?;
 
         let title = ai_json["title"].as_str().unwrap_or("Mental Health Report").to_string();
@@ -153,7 +150,6 @@ Be empathetic, evidence-based, and constructive. Do NOT diagnose. Return ONLY va
         let risk_level = ai_json["risk_level"].as_str().unwrap_or("low").to_string();
         let avg_mood = ai_json["avg_mood"].as_f64().map(|v| v as f32);
 
-        // Encrypt report content
         let content_enc = crypto.encrypt(&content, encryption_salt)?;
         let analysis_enc = crypto.encrypt(&ai_analysis, encryption_salt)?;
         let recs_enc = crypto.encrypt(&recommendations, encryption_salt)?;
@@ -185,7 +181,6 @@ Be empathetic, evidence-based, and constructive. Do NOT diagnose. Return ONLY va
             .execute(pool).await
             .map_err(AppError::DatabaseError)?;
 
-        // Send email if requested
         if send_email {
             let email_result = email_service.send_report_email(
                 user_email,
@@ -237,7 +232,6 @@ Be empathetic, evidence-based, and constructive. Do NOT diagnose. Return ONLY va
         })
     }
 
-    /// Get all reports for a user.
     pub async fn get_reports(
         pool: &MySqlPool,
         crypto: &CryptoService,
@@ -262,7 +256,6 @@ Be empathetic, evidence-based, and constructive. Do NOT diagnose. Return ONLY va
             .collect()
     }
 
-    /// Get a single report by ID.
     pub async fn get_report(
         pool: &MySqlPool,
         crypto: &CryptoService,
@@ -341,11 +334,9 @@ Be empathetic, evidence-based, and constructive. Do NOT diagnose. Return ONLY va
 
     fn parse_ai_json(raw: &str) -> Result<serde_json::Value> {
         let trimmed = raw.trim();
-        // Try direct parse first
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
             return Ok(v);
         }
-        // Try extracting from markdown code block
         let cleaned = trimmed
             .trim_start_matches("```json")
             .trim_start_matches("```")

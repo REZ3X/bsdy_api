@@ -9,13 +9,14 @@ pub mod content;
 pub mod log;
 pub mod health;
 pub mod docs;
+pub mod dev;
 
 use axum::Router;
 use tower_http::services::ServeDir;
 
 use crate::state::AppState;
 
-/// Build the complete API router with all route groups.
+/// Router builder
 pub fn build_router() -> Router<AppState> {
     Router::new()
         .nest("/api/auth", auth::routes())
@@ -29,5 +30,6 @@ pub fn build_router() -> Router<AppState> {
         .nest("/api/logs", log::routes())
         .merge(health::routes())
         .merge(docs::routes())
+        .merge(dev::routes())
         .nest_service("/uploads", ServeDir::new("uploads"))
 }

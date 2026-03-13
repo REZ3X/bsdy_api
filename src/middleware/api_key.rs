@@ -21,9 +21,9 @@ pub async fn api_key_layer(
         return Ok(next.run(request).await);
     }
 
-    // Skip API key check for auth routes and docs
+    // Skip API key check for auth routes, docs, health, and dev
     let path = request.uri().path();
-    if path.starts_with("/api/auth") || path.starts_with("/docs") || path == "/health" {
+    if path.starts_with("/api/auth") || path.starts_with("/docs") || path == "/health" || path.starts_with("/dev") {
         return Ok(next.run(request).await);
     }
 

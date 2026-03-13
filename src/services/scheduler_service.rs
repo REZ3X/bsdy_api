@@ -18,7 +18,6 @@ use crate::{
 pub struct SchedulerService;
 
 impl SchedulerService {
-    /// Start the background scheduler with weekly, monthly, and yearly report crons.
     pub async fn start(
         pool: MySqlPool,
         config: Arc<Config>,
@@ -108,7 +107,6 @@ impl SchedulerService {
         Ok(())
     }
 
-    /// Generate reports of a given type for all eligible users (verified + onboarded).
     async fn generate_reports_for_all(
         pool: &MySqlPool,
         crypto: &CryptoService,
@@ -116,7 +114,6 @@ impl SchedulerService {
         email: &EmailService,
         report_type: &str
     ) -> Result<()> {
-        // Find users who are verified and have completed onboarding
         let users: Vec<(String, String, String, String)> = sqlx
             ::query_as(
                 r#"SELECT u.id, u.name, u.email, u.encryption_salt
@@ -178,7 +175,6 @@ impl SchedulerService {
             }
         }
 
-        // Log the scheduled task result
         let task_id = uuid::Uuid::new_v4().to_string();
         let task_type = format!("{}_report", report_type);
         let result_json =
