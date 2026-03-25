@@ -178,7 +178,6 @@ async fn send_message(
         return Err(AppError::ValidationError("Message cannot be empty".into()));
     }
 
-    // Determine chat type to route to the correct service
     let chat = ChatService::get_chat(&state.db, &auth.user.id, &chat_id).await?;
 
     let (user_msg, assistant_msg) = match chat.chat_type.as_str() {

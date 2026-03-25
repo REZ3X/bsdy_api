@@ -140,7 +140,6 @@ async fn update_profile(
     auth: VerifiedUser,
     Json(req): Json<UpdateProfileRequest>
 ) -> Result<Json<Value>> {
-    // Build update query dynamically
     let mut updates = Vec::new();
     let mut binds: Vec<String> = Vec::new();
 
@@ -175,7 +174,6 @@ async fn update_profile(
     q = q.bind(&auth.user.id);
     q.execute(&state.db).await.map_err(AppError::DatabaseError)?;
 
-    // Fetch updated user
     let user: crate::models::UserRow = sqlx
         ::query_as("SELECT * FROM users WHERE id = ?")
         .bind(&auth.user.id)

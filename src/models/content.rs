@@ -33,7 +33,6 @@ pub struct ContentResponse {
     pub updated_at: String,
 }
 
-/// Lightweight listing response (no full body).
 #[derive(Debug, Serialize)]
 pub struct ContentListItem {
     pub id: String,
@@ -48,7 +47,6 @@ pub struct ContentListItem {
 }
 
 impl ContentRow {
-    /// Convert to full response with optional image base URL.
     pub fn to_response(&self, image_base_url: &str) -> ContentResponse {
         ContentResponse {
             id: self.id.clone(),
@@ -67,7 +65,6 @@ impl ContentRow {
         }
     }
 
-    /// Convert to list item (no body) for listing endpoints.
     pub fn to_list_item(&self, image_base_url: &str) -> ContentListItem {
         ContentListItem {
             id: self.id.clone(),

@@ -1,5 +1,8 @@
-use aes_gcm::{ aead::{ Aead, KeyInit, OsRng }, Aes256Gcm, Nonce };
-use base64::{ engine::general_purpose::STANDARD as B64, Engine };
+use aes_gcm::{
+    aead::{Aead, KeyInit, OsRng},
+    Aes256Gcm, Nonce,
+};
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use hkdf::Hkdf;
 use rand::RngCore;
 use sha2::Sha256;
@@ -16,33 +19,28 @@ pub struct CryptoService {
 
 impl CryptoService {
     pub fn new(master_key_hex: &str) -> Result<Self, AppError> {
-        let master_key = hex
-            ::decode(master_key_hex)
-            .map_err(|e| { AppError::EncryptionError(format!("Invalid master key hex: {}", e)) })?;
+        let master_key = hex::decode(master_key_hex)
+            .map_err(|e| AppError::EncryptionError(format!("Invalid master key hex: {}", e)))?;
         if master_key.len() != 32 {
-            return Err(
-                AppError::EncryptionError("Master key must be 32 bytes (64 hex chars)".into())
-            );
+            return Err(AppError::EncryptionError(
+                "Master key must be 32 bytes (64 hex chars)".into(),
+            ));
         }
         Ok(Self { master_key })
     }
 
-    /// Derive a per-user encryption key using HKDF-SHA256.
     fn derive_user_key(&self, user_salt: &str) -> Result<[u8; 32], AppError> {
         let hk = Hkdf::<Sha256>::new(Some(user_salt.as_bytes()), &self.master_key);
         let mut okm = [0u8; 32];
-        hk
-            .expand(b"bsdy-e2e-encryption", &mut okm)
+        hk.expand(b"bsdy-e2e-encryption", &mut okm)
             .map_err(|e| AppError::EncryptionError(format!("HKDF expand failed: {}", e)))?;
         Ok(okm)
     }
 
-    /// Encrypt plaintext for a specific user. Returns base64(nonce + ciphertext).
     pub fn encrypt(&self, plaintext: &str, user_salt: &str) -> Result<String, AppError> {
         let key = self.derive_user_key(user_salt)?;
-        let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e|
-            AppError::EncryptionError(format!("Cipher init failed: {}", e))
-        )?;
+        let cipher = Aes256Gcm::new_from_slice(&key)
+            .map_err(|e| AppError::EncryptionError(format!("Cipher init failed: {}", e)))?;
 
         let mut nonce_bytes = [0u8; 12];
         OsRng.fill_bytes(&mut nonce_bytes);
@@ -52,7 +50,6 @@ impl CryptoService {
             .encrypt(nonce, plaintext.as_bytes())
             .map_err(|e| AppError::EncryptionError(format!("Encryption failed: {}", e)))?;
 
-        // Prepend nonce to ciphertext, then base64
         let mut combined = Vec::with_capacity(12 + ciphertext.len());
         combined.extend_from_slice(&nonce_bytes);
         combined.extend_from_slice(&ciphertext);
@@ -60,16 +57,14 @@ impl CryptoService {
         Ok(B64.encode(combined))
     }
 
-    /// Decrypt base64(nonce + ciphertext) for a specific user.
     pub fn decrypt(&self, encrypted_b64: &str, user_salt: &str) -> Result<String, AppError> {
         let key = self.derive_user_key(user_salt)?;
-        let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e|
-            AppError::EncryptionError(format!("Cipher init failed: {}", e))
-        )?;
+        let cipher = Aes256Gcm::new_from_slice(&key)
+            .map_err(|e| AppError::EncryptionError(format!("Cipher init failed: {}", e)))?;
 
-        let combined = B64.decode(encrypted_b64).map_err(|e| {
-            AppError::EncryptionError(format!("Base64 decode failed: {}", e))
-        })?;
+        let combined = B64
+            .decode(encrypted_b64)
+            .map_err(|e| AppError::EncryptionError(format!("Base64 decode failed: {}", e)))?;
 
         if combined.len() < 12 {
             return Err(AppError::EncryptionError("Ciphertext too short".into()));
@@ -82,16 +77,14 @@ impl CryptoService {
             .decrypt(nonce, ciphertext)
             .map_err(|e| AppError::EncryptionError(format!("Decryption failed: {}", e)))?;
 
-        String::from_utf8(plaintext).map_err(|e|
-            AppError::EncryptionError(format!("UTF-8 decode failed: {}", e))
-        )
+        String::from_utf8(plaintext)
+            .map_err(|e| AppError::EncryptionError(format!("UTF-8 decode failed: {}", e)))
     }
 
-    /// Encrypt an optional field. Returns None if input is None.
     pub fn encrypt_optional(
         &self,
         plaintext: Option<&str>,
-        user_salt: &str
+        user_salt: &str,
     ) -> Result<Option<String>, AppError> {
         match plaintext {
             Some(text) => Ok(Some(self.encrypt(text, user_salt)?)),
@@ -99,11 +92,10 @@ impl CryptoService {
         }
     }
 
-    /// Decrypt an optional field. Returns None if input is None.
     pub fn decrypt_optional(
         &self,
         encrypted: Option<&str>,
-        user_salt: &str
+        user_salt: &str,
     ) -> Result<Option<String>, AppError> {
         match encrypted {
             Some(enc) => Ok(Some(self.decrypt(enc, user_salt)?)),
@@ -111,7 +103,6 @@ impl CryptoService {
         }
     }
 
-    /// Generate a random 32-char hex salt for a new user.
     pub fn generate_user_salt() -> String {
         let mut salt = [0u8; 16];
         OsRng.fill_bytes(&mut salt);

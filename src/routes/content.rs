@@ -1,19 +1,21 @@
 use axum::{
-    extract::{ DefaultBodyLimit, Multipart, Path, Query, State },
-    routing::{ delete, get, post, put },
-    Json,
-    Router,
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
+    routing::{delete, get, post, put},
+    Json, Router,
 };
 use serde::Deserialize;
-use serde_json::{ json, Value };
+use serde_json::{json, Value};
 use std::path::PathBuf;
 use tokio::fs;
 use uuid::Uuid;
 
 use crate::{
-    error::{ AppError, Result },
-    middleware::{ activity_log::log_admin_activity, auth::{ AdminUser, AuthUser } },
-    models::content::{ CreateContentRequest, UpdateContentRequest },
+    error::{AppError, Result},
+    middleware::{
+        activity_log::log_admin_activity,
+        auth::{AdminUser, AuthUser},
+    },
+    models::content::{CreateContentRequest, UpdateContentRequest},
     services::ContentService,
     state::AppState,
 };
@@ -48,7 +50,6 @@ struct ListQuery {
     offset: Option<i64>,
 }
 
-/// Resolve the image base URL from config (e.g. "http://localhost:8000").
 fn image_base_url(state: &AppState) -> String {
     if state.config.app.env == "production" {
         state.config.app.frontend_url.clone()
@@ -57,7 +58,6 @@ fn image_base_url(state: &AppState) -> String {
     }
 }
 
-/// Ensure the upload directory exists.
 async fn ensure_upload_dir() -> Result<PathBuf> {
     let dir = PathBuf::from(UPLOAD_DIR);
     fs::create_dir_all(&dir).await.map_err(|e| {
@@ -73,7 +73,7 @@ async fn ensure_upload_dir() -> Result<PathBuf> {
 async fn list_contents(
     State(state): State<AppState>,
     auth: Option<AuthUser>,
-    Query(params): Query<ListQuery>
+    Query(params): Query<ListQuery>,
 ) -> Result<Json<Value>> {
     let limit = params.limit.unwrap_or(20).min(100);
     let offset = params.offset.unwrap_or(0);
@@ -85,25 +85,16 @@ async fn list_contents(
         .unwrap_or(false);
 
     let base = image_base_url(&state);
-    let (items, total) = ContentService::list_contents(
-        &state.db,
-        is_admin,
-        limit,
-        offset,
-        &base
-    ).await?;
+    let (items, total) =
+        ContentService::list_contents(&state.db, is_admin, limit, offset, &base).await?;
 
-    Ok(
-        Json(
-            json!({
+    Ok(Json(json!({
         "success": true,
         "data": items,
         "total": total,
         "limit": limit,
         "offset": offset
-    })
-        )
-    )
+    })))
 }
 
 // ── GET /api/content/:content_id ────────────────────────────
@@ -111,7 +102,7 @@ async fn list_contents(
 async fn get_content(
     State(state): State<AppState>,
     auth: Option<AuthUser>,
-    Path(content_id): Path<String>
+    Path(content_id): Path<String>,
 ) -> Result<Json<Value>> {
     let is_admin = auth
         .as_ref()
@@ -129,7 +120,7 @@ async fn get_content(
 async fn get_content_by_slug(
     State(state): State<AppState>,
     auth: Option<AuthUser>,
-    Path(slug): Path<String>
+    Path(slug): Path<String>,
 ) -> Result<Json<Value>> {
     let is_admin = auth
         .as_ref()
@@ -147,7 +138,7 @@ async fn get_content_by_slug(
 async fn create_content(
     State(state): State<AppState>,
     admin: AdminUser,
-    Json(req): Json<CreateContentRequest>
+    Json(req): Json<CreateContentRequest>,
 ) -> Result<Json<Value>> {
     let base = image_base_url(&state);
     let content = ContentService::create_content(&state.db, &admin.user.id, &req, &base).await?;
@@ -160,8 +151,9 @@ async fn create_content(
         "content",
         Some(&content.id),
         None,
-        None
-    ).await;
+        None,
+    )
+    .await;
 
     Ok(Json(json!({ "success": true, "data": content })))
 }
@@ -172,7 +164,7 @@ async fn update_content(
     State(state): State<AppState>,
     admin: AdminUser,
     Path(content_id): Path<String>,
-    Json(req): Json<UpdateContentRequest>
+    Json(req): Json<UpdateContentRequest>,
 ) -> Result<Json<Value>> {
     let base = image_base_url(&state);
     let content = ContentService::update_content(&state.db, &content_id, &req, &base).await?;
@@ -185,8 +177,9 @@ async fn update_content(
         "content",
         Some(&content_id),
         None,
-        None
-    ).await;
+        None,
+    )
+    .await;
 
     Ok(Json(json!({ "success": true, "data": content })))
 }
@@ -196,14 +189,13 @@ async fn update_content(
 async fn delete_content(
     State(state): State<AppState>,
     admin: AdminUser,
-    Path(content_id): Path<String>
+    Path(content_id): Path<String>,
 ) -> Result<Json<Value>> {
-    // Try to delete cover image from disk
-    if
-        let Ok(row) = sqlx
-            ::query_as::<_, (Option<String>,)>("SELECT cover_image FROM contents WHERE id = ?")
+    if let Ok(row) =
+        sqlx::query_as::<_, (Option<String>,)>("SELECT cover_image FROM contents WHERE id = ?")
             .bind(&content_id)
-            .fetch_one(&state.db).await
+            .fetch_one(&state.db)
+            .await
     {
         if let Some(filename) = row.0 {
             let path = PathBuf::from(UPLOAD_DIR).join(&filename);
@@ -221,8 +213,9 @@ async fn delete_content(
         "content",
         Some(&content_id),
         None,
-        None
-    ).await;
+        None,
+    )
+    .await;
 
     Ok(Json(json!({
         "success": true,
@@ -237,40 +230,39 @@ async fn upload_cover_image(
     State(state): State<AppState>,
     admin: AdminUser,
     Path(content_id): Path<String>,
-    mut multipart: Multipart
+    mut multipart: Multipart,
 ) -> Result<Json<Value>> {
-    // Verify content exists
-    let existing: Option<(Option<String>,)> = sqlx
-        ::query_as("SELECT cover_image FROM contents WHERE id = ?")
-        .bind(&content_id)
-        .fetch_optional(&state.db).await
-        .map_err(AppError::DatabaseError)?;
+    let existing: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT cover_image FROM contents WHERE id = ?")
+            .bind(&content_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(AppError::DatabaseError)?;
 
-    let old_image = existing.ok_or_else(|| AppError::NotFound("Content not found".into()))?.0;
+    let old_image = existing
+        .ok_or_else(|| AppError::NotFound("Content not found".into()))?
+        .0;
 
     let upload_dir = ensure_upload_dir().await?;
 
-    // Process the multipart field
     let field = multipart
-        .next_field().await
+        .next_field()
+        .await
         .map_err(|e| AppError::BadRequest(format!("Invalid multipart data: {}", e)))?
         .ok_or_else(|| AppError::BadRequest("No file field provided".into()))?;
 
-    // Validate content type
     let content_type = field
         .content_type()
         .ok_or_else(|| AppError::BadRequest("Missing content type".into()))?
         .to_string();
 
     if !ALLOWED_MIME.contains(&content_type.as_str()) {
-        return Err(
-            AppError::BadRequest(
-                format!("Invalid image type '{}'. Allowed: JPEG, PNG, WebP, GIF", content_type)
-            )
-        );
+        return Err(AppError::BadRequest(format!(
+            "Invalid image type '{}'. Allowed: JPEG, PNG, WebP, GIF",
+            content_type
+        )));
     }
 
-    // Determine extension from MIME type
     let ext = match content_type.as_str() {
         "image/jpeg" => "jpg",
         "image/png" => "png",
@@ -279,32 +271,28 @@ async fn upload_cover_image(
         _ => "bin",
     };
 
-    // Read file bytes
     let data = field
-        .bytes().await
+        .bytes()
+        .await
         .map_err(|e| AppError::BadRequest(format!("Failed to read upload: {}", e)))?;
 
     if data.is_empty() {
         return Err(AppError::BadRequest("Uploaded file is empty".into()));
     }
 
-    // Generate unique filename
     let filename = format!("{}_{}.{}", content_id, Uuid::new_v4(), ext);
     let file_path = upload_dir.join(&filename);
 
-    // Write file to disk
     fs::write(&file_path, &data).await.map_err(|e| {
         tracing::error!("Failed to write image file: {}", e);
         AppError::InternalError(anyhow::anyhow!("Failed to save image: {}", e))
     })?;
 
-    // Delete old cover image if it exists
     if let Some(old) = old_image {
         let old_path = upload_dir.join(&old);
         let _ = fs::remove_file(&old_path).await;
     }
 
-    // Update database with new filename
     let base = image_base_url(&state);
     let content = ContentService::set_cover_image(&state.db, &content_id, &filename, &base).await?;
 
@@ -316,8 +304,9 @@ async fn upload_cover_image(
         "content_cover",
         Some(&content_id),
         None,
-        None
-    ).await;
+        None,
+    )
+    .await;
 
     Ok(Json(json!({ "success": true, "data": content })))
 }

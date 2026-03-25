@@ -1,15 +1,16 @@
-use axum::{ extract::{ Query, State }, routing::get, Json, Router };
+use axum::{
+    extract::{Query, State},
+    routing::get,
+    Json, Router,
+};
 use serde::Deserialize;
-use serde_json::{ json, Value };
+use serde_json::{json, Value};
 
 use crate::{
-    error::{ AppError, Result },
-    middleware::auth::{ AuthUser, AdminUser },
+    error::{AppError, Result},
+    middleware::auth::{AdminUser, AuthUser},
     models::log::{
-        ActivityLogResponse,
-        AdminActionLogResponse,
-        AuthLogResponse,
-        PaginatedResponse,
+        ActivityLogResponse, AdminActionLogResponse, AuthLogResponse, PaginatedResponse,
     },
     state::AppState,
 };
@@ -33,30 +34,30 @@ struct LogQueryParams {
 async fn get_auth_logs(
     State(state): State<AppState>,
     auth: AuthUser,
-    Query(params): Query<LogQueryParams>
+    Query(params): Query<LogQueryParams>,
 ) -> Result<Json<Value>> {
     let page = params.page.unwrap_or(1).max(1);
     let per_page = params.per_page.unwrap_or(20).min(100);
     let offset = (page - 1) * per_page;
 
-    let total: (i64,) = sqlx
-        ::query_as("SELECT COUNT(*) FROM user_auth_logs WHERE user_id = ?")
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM user_auth_logs WHERE user_id = ?")
         .bind(&auth.user.id)
-        .fetch_one(&state.db).await
+        .fetch_one(&state.db)
+        .await
         .map_err(AppError::DatabaseError)?;
 
-    let rows: Vec<crate::models::log::AuthLogRow> = sqlx
-        ::query_as(
-            r#"SELECT * FROM user_auth_logs
+    let rows: Vec<crate::models::log::AuthLogRow> = sqlx::query_as(
+        r#"SELECT * FROM user_auth_logs
            WHERE user_id = ?
            ORDER BY created_at DESC
-           LIMIT ? OFFSET ?"#
-        )
-        .bind(&auth.user.id)
-        .bind(per_page)
-        .bind(offset)
-        .fetch_all(&state.db).await
-        .map_err(AppError::DatabaseError)?;
+           LIMIT ? OFFSET ?"#,
+    )
+    .bind(&auth.user.id)
+    .bind(per_page)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await
+    .map_err(AppError::DatabaseError)?;
 
     let data: Vec<AuthLogResponse> = rows
         .iter()
@@ -85,13 +86,12 @@ async fn get_auth_logs(
 async fn get_activity_logs(
     State(state): State<AppState>,
     auth: AuthUser,
-    Query(params): Query<LogQueryParams>
+    Query(params): Query<LogQueryParams>,
 ) -> Result<Json<Value>> {
     let page = params.page.unwrap_or(1).max(1);
     let per_page = params.per_page.unwrap_or(20).min(100);
     let offset = (page - 1) * per_page;
 
-    // Build WHERE clause
     let (count_query, data_query, has_feature);
     if let Some(ref feature) = params.feature {
         has_feature = true;
@@ -109,27 +109,26 @@ async fn get_activity_logs(
     } else {
         has_feature = false;
         count_query = "SELECT COUNT(*) FROM user_activity_logs WHERE user_id = ?".to_string();
-        data_query =
-            r#"SELECT * FROM user_activity_logs
+        data_query = r#"SELECT * FROM user_activity_logs
            WHERE user_id = ?
            ORDER BY created_at DESC
-           LIMIT ? OFFSET ?"#.to_string();
+           LIMIT ? OFFSET ?"#
+            .to_string();
     }
-    // Suppress unused variable warning
     let _ = has_feature;
 
-    let total: (i64,) = sqlx
-        ::query_as(&count_query)
+    let total: (i64,) = sqlx::query_as(&count_query)
         .bind(&auth.user.id)
-        .fetch_one(&state.db).await
+        .fetch_one(&state.db)
+        .await
         .map_err(AppError::DatabaseError)?;
 
-    let rows: Vec<crate::models::log::ActivityLogRow> = sqlx
-        ::query_as(&data_query)
+    let rows: Vec<crate::models::log::ActivityLogRow> = sqlx::query_as(&data_query)
         .bind(&auth.user.id)
         .bind(per_page)
         .bind(offset)
-        .fetch_all(&state.db).await
+        .fetch_all(&state.db)
+        .await
         .map_err(AppError::DatabaseError)?;
 
     let data: Vec<ActivityLogResponse> = rows
@@ -160,13 +159,12 @@ async fn get_activity_logs(
 async fn get_admin_action_logs(
     State(state): State<AppState>,
     _admin: AdminUser,
-    Query(params): Query<LogQueryParams>
+    Query(params): Query<LogQueryParams>,
 ) -> Result<Json<Value>> {
     let page = params.page.unwrap_or(1).max(1);
     let per_page = params.per_page.unwrap_or(20).min(100);
     let offset = (page - 1) * per_page;
 
-    // Build WHERE clause
     let (count_query, data_query);
     if let Some(ref feature) = params.feature {
         count_query = format!(
@@ -182,22 +180,22 @@ async fn get_admin_action_logs(
         );
     } else {
         count_query = "SELECT COUNT(*) FROM admin_action_logs".to_string();
-        data_query =
-            r#"SELECT * FROM admin_action_logs
+        data_query = r#"SELECT * FROM admin_action_logs
            ORDER BY created_at DESC
-           LIMIT ? OFFSET ?"#.to_string();
+           LIMIT ? OFFSET ?"#
+            .to_string();
     }
 
-    let total: (i64,) = sqlx
-        ::query_as(&count_query)
-        .fetch_one(&state.db).await
+    let total: (i64,) = sqlx::query_as(&count_query)
+        .fetch_one(&state.db)
+        .await
         .map_err(AppError::DatabaseError)?;
 
-    let rows: Vec<crate::models::log::AdminActionLogRow> = sqlx
-        ::query_as(&data_query)
+    let rows: Vec<crate::models::log::AdminActionLogRow> = sqlx::query_as(&data_query)
         .bind(per_page)
         .bind(offset)
-        .fetch_all(&state.db).await
+        .fetch_all(&state.db)
+        .await
         .map_err(AppError::DatabaseError)?;
 
     let data: Vec<AdminActionLogResponse> = rows

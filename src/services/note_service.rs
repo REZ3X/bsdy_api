@@ -3,8 +3,8 @@ use uuid::Uuid;
 
 use crate::{
     crypto::CryptoService,
-    error::{ AppError, Result },
-    models::note::{ CreateNoteRequest, NoteResponse, NoteRow, UpdateNoteRequest },
+    error::{AppError, Result},
+    models::note::{CreateNoteRequest, NoteResponse, NoteRow, UpdateNoteRequest},
 };
 
 pub struct NoteService;
@@ -16,7 +16,7 @@ impl NoteService {
         crypto: &CryptoService,
         user_id: &str,
         encryption_salt: &str,
-        req: &CreateNoteRequest
+        req: &CreateNoteRequest,
     ) -> Result<NoteResponse> {
         if req.title.trim().is_empty() {
             return Err(AppError::ValidationError("Title cannot be empty".into()));
@@ -30,24 +30,24 @@ impl NoteService {
         let content_enc = crypto.encrypt(&req.content, encryption_salt)?;
         let is_pinned = req.is_pinned.unwrap_or(false);
 
-        sqlx
-            ::query(
-                r#"INSERT INTO notes (id, user_id, title_enc, content_enc, label, is_pinned)
-               VALUES (?, ?, ?, ?, ?, ?)"#
-            )
-            .bind(&id)
-            .bind(user_id)
-            .bind(&title_enc)
-            .bind(&content_enc)
-            .bind(req.label.as_deref())
-            .bind(is_pinned)
-            .execute(pool).await
-            .map_err(AppError::DatabaseError)?;
+        sqlx::query(
+            r#"INSERT INTO notes (id, user_id, title_enc, content_enc, label, is_pinned)
+               VALUES (?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(&id)
+        .bind(user_id)
+        .bind(&title_enc)
+        .bind(&content_enc)
+        .bind(req.label.as_deref())
+        .bind(is_pinned)
+        .execute(pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
 
-        let row: NoteRow = sqlx
-            ::query_as("SELECT * FROM notes WHERE id = ?")
+        let row: NoteRow = sqlx::query_as("SELECT * FROM notes WHERE id = ?")
             .bind(&id)
-            .fetch_one(pool).await
+            .fetch_one(pool)
+            .await
             .map_err(AppError::DatabaseError)?;
 
         Self::decrypt_row(crypto, &row, encryption_salt)
@@ -60,33 +60,33 @@ impl NoteService {
         user_id: &str,
         encryption_salt: &str,
         label: Option<&str>,
-        limit: i64
+        limit: i64,
     ) -> Result<Vec<NoteResponse>> {
         let rows: Vec<NoteRow> = if let Some(label) = label {
-            sqlx
-                ::query_as(
-                    r#"SELECT * FROM notes
+            sqlx::query_as(
+                r#"SELECT * FROM notes
                    WHERE user_id = ? AND label = ?
                    ORDER BY is_pinned DESC, updated_at DESC
-                   LIMIT ?"#
-                )
-                .bind(user_id)
-                .bind(label)
-                .bind(limit)
-                .fetch_all(pool).await
-                .map_err(AppError::DatabaseError)?
+                   LIMIT ?"#,
+            )
+            .bind(user_id)
+            .bind(label)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .map_err(AppError::DatabaseError)?
         } else {
-            sqlx
-                ::query_as(
-                    r#"SELECT * FROM notes
+            sqlx::query_as(
+                r#"SELECT * FROM notes
                    WHERE user_id = ?
                    ORDER BY is_pinned DESC, updated_at DESC
-                   LIMIT ?"#
-                )
-                .bind(user_id)
-                .bind(limit)
-                .fetch_all(pool).await
-                .map_err(AppError::DatabaseError)?
+                   LIMIT ?"#,
+            )
+            .bind(user_id)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .map_err(AppError::DatabaseError)?
         };
 
         rows.iter()
@@ -100,13 +100,13 @@ impl NoteService {
         crypto: &CryptoService,
         user_id: &str,
         note_id: &str,
-        encryption_salt: &str
+        encryption_salt: &str,
     ) -> Result<NoteResponse> {
-        let row: NoteRow = sqlx
-            ::query_as("SELECT * FROM notes WHERE id = ? AND user_id = ?")
+        let row: NoteRow = sqlx::query_as("SELECT * FROM notes WHERE id = ? AND user_id = ?")
             .bind(note_id)
             .bind(user_id)
-            .fetch_optional(pool).await
+            .fetch_optional(pool)
+            .await
             .map_err(AppError::DatabaseError)?
             .ok_or_else(|| AppError::NotFound("Note not found".into()))?;
 
@@ -120,14 +120,13 @@ impl NoteService {
         user_id: &str,
         note_id: &str,
         encryption_salt: &str,
-        req: &UpdateNoteRequest
+        req: &UpdateNoteRequest,
     ) -> Result<NoteResponse> {
-        // Check existence
-        let _existing: NoteRow = sqlx
-            ::query_as("SELECT * FROM notes WHERE id = ? AND user_id = ?")
+        let _existing: NoteRow = sqlx::query_as("SELECT * FROM notes WHERE id = ? AND user_id = ?")
             .bind(note_id)
             .bind(user_id)
-            .fetch_optional(pool).await
+            .fetch_optional(pool)
+            .await
             .map_err(AppError::DatabaseError)?
             .ok_or_else(|| AppError::NotFound("Note not found".into()))?;
 
@@ -149,29 +148,29 @@ impl NoteService {
             None
         };
 
-        sqlx
-            ::query(
-                r#"UPDATE notes SET
+        sqlx::query(
+            r#"UPDATE notes SET
                 title_enc = COALESCE(?, title_enc),
                 content_enc = COALESCE(?, content_enc),
                 label = COALESCE(?, label),
                 is_pinned = COALESCE(?, is_pinned),
                 updated_at = NOW()
-               WHERE id = ? AND user_id = ?"#
-            )
-            .bind(title_enc.as_deref())
-            .bind(content_enc.as_deref())
-            .bind(req.label.as_deref())
-            .bind(req.is_pinned)
-            .bind(note_id)
-            .bind(user_id)
-            .execute(pool).await
-            .map_err(AppError::DatabaseError)?;
+               WHERE id = ? AND user_id = ?"#,
+        )
+        .bind(title_enc.as_deref())
+        .bind(content_enc.as_deref())
+        .bind(req.label.as_deref())
+        .bind(req.is_pinned)
+        .bind(note_id)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
 
-        let row: NoteRow = sqlx
-            ::query_as("SELECT * FROM notes WHERE id = ?")
+        let row: NoteRow = sqlx::query_as("SELECT * FROM notes WHERE id = ?")
             .bind(note_id)
-            .fetch_one(pool).await
+            .fetch_one(pool)
+            .await
             .map_err(AppError::DatabaseError)?;
 
         Self::decrypt_row(crypto, &row, encryption_salt)
@@ -179,11 +178,11 @@ impl NoteService {
 
     /// Delete a note.
     pub async fn delete_note(pool: &MySqlPool, user_id: &str, note_id: &str) -> Result<()> {
-        let result = sqlx
-            ::query("DELETE FROM notes WHERE id = ? AND user_id = ?")
+        let result = sqlx::query("DELETE FROM notes WHERE id = ? AND user_id = ?")
             .bind(note_id)
             .bind(user_id)
-            .execute(pool).await
+            .execute(pool)
+            .await
             .map_err(AppError::DatabaseError)?;
 
         if result.rows_affected() == 0 {
@@ -203,12 +202,7 @@ impl NoteService {
             .fetch_all(pool).await
             .map_err(AppError::DatabaseError)?;
 
-        Ok(
-            rows
-                .into_iter()
-                .map(|(l,)| l)
-                .collect()
-        )
+        Ok(rows.into_iter().map(|(l,)| l).collect())
     }
 
     fn decrypt_row(crypto: &CryptoService, row: &NoteRow, salt: &str) -> Result<NoteResponse> {

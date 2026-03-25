@@ -15,7 +15,6 @@ pub async fn create_pool(config: &DatabaseConfig) -> Result<MySqlPool, sqlx::Err
     Ok(pool)
 }
 
-/// Run SQL migration files against the pool.
 pub async fn run_migrations(pool: &MySqlPool) -> Result<(), anyhow::Error> {
     let migrations: &[&str] = &[
         include_str!("../migrations/001_initial_schema.sql"),

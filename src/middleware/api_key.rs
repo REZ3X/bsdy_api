@@ -10,24 +10,20 @@ use serde_json::json;
 
 use crate::state::AppState;
 
-/// Middleware that checks API key if the app is in "external" mode.
 pub async fn api_key_layer(
     State(state): State<AppState>,
     request: Request<Body>,
     next: Next
 ) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
-    // If not external mode, skip API key check
     if !state.config.is_external() {
         return Ok(next.run(request).await);
     }
 
-    // Skip API key check for auth routes, docs, health, and dev
     let path = request.uri().path();
     if path.starts_with("/api/auth") || path.starts_with("/docs") || path == "/health" || path.starts_with("/dev") {
         return Ok(next.run(request).await);
     }
 
-    // Extract API key from header
     let api_key = request
         .headers()
         .get("X-API-Key")

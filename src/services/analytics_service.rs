@@ -4,8 +4,8 @@ use uuid::Uuid;
 
 use crate::{
     crypto::CryptoService,
-    error::{ AppError, Result },
-    models::mental::{ AnalyticsSummaryResponse, AnalyticsSummaryRow, MentalCharacteristicRow },
+    error::{AppError, Result},
+    models::mental::{AnalyticsSummaryResponse, AnalyticsSummaryRow, MentalCharacteristicRow},
     services::gemini_service::GeminiService,
 };
 
@@ -20,58 +20,58 @@ impl AnalyticsService {
         user_id: &str,
         user_name: &str,
         encryption_salt: &str,
-        period: &str, // weekly | monthly | quarterly
-        trigger: &str // automatic | manual
+        period: &str,  // weekly | monthly | quarterly
+        trigger: &str, // automatic | manual
     ) -> Result<AnalyticsSummaryResponse> {
         let (period_start, period_end) = Self::period_dates(period);
 
         // Gather mood entries for the period
-        let mood_rows: Vec<(String, i8, Option<i8>, Option<i8>, Option<i8>)> = sqlx
-            ::query_as(
-                r#"SELECT id, mood_score, energy_level, anxiety_level, stress_level
+        let mood_rows: Vec<(String, i8, Option<i8>, Option<i8>, Option<i8>)> = sqlx::query_as(
+            r#"SELECT id, mood_score, energy_level, anxiety_level, stress_level
                FROM mood_entries
                WHERE user_id = ? AND entry_date BETWEEN ? AND ?
-               ORDER BY entry_date ASC"#
-            )
-            .bind(user_id)
-            .bind(period_start)
-            .bind(period_end)
-            .fetch_all(pool).await
-            .map_err(AppError::DatabaseError)?;
+               ORDER BY entry_date ASC"#,
+        )
+        .bind(user_id)
+        .bind(period_start)
+        .bind(period_end)
+        .fetch_all(pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
 
         if mood_rows.is_empty() {
-            return Err(
-                AppError::BadRequest(
-                    "No mood data found for this period. Please log at least one mood entry.".into()
-                )
-            );
+            return Err(AppError::BadRequest(
+                "No mood data found for this period. Please log at least one mood entry.".into(),
+            ));
         }
 
-        let mood_json = serde_json
-            ::to_string(
-                &mood_rows
-                    .iter()
-                    .map(|(_id, mood, energy, anxiety, stress)| {
-                        serde_json::json!({
-                "mood_score": mood,
-                "energy_level": energy,
-                "anxiety_level": anxiety,
-                "stress_level": stress,
-            })
+        let mood_json = serde_json::to_string(
+            &mood_rows
+                .iter()
+                .map(|(_id, mood, energy, anxiety, stress)| {
+                    serde_json::json!({
+                        "mood_score": mood,
+                        "energy_level": energy,
+                        "anxiety_level": anxiety,
+                        "stress_level": stress,
                     })
-                    .collect::<Vec<_>>()
-            )
-            .unwrap_or_default();
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or_default();
 
         // Get baseline for context
-        let baseline_row: Option<MentalCharacteristicRow> = sqlx
-            ::query_as("SELECT * FROM mental_characteristics WHERE user_id = ?")
-            .bind(user_id)
-            .fetch_optional(pool).await
-            .map_err(AppError::DatabaseError)?;
+        let baseline_row: Option<MentalCharacteristicRow> =
+            sqlx::query_as("SELECT * FROM mental_characteristics WHERE user_id = ?")
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(AppError::DatabaseError)?;
 
         let baseline_json = if let Some(row) = baseline_row {
-            let stress = crypto.decrypt(&row.stress_level_enc, encryption_salt).unwrap_or_default();
+            let stress = crypto
+                .decrypt(&row.stress_level_enc, encryption_salt)
+                .unwrap_or_default();
             let anxiety = crypto
                 .decrypt(&row.anxiety_level_enc, encryption_salt)
                 .unwrap_or_default();
@@ -81,56 +81,53 @@ impl AnalyticsService {
             let therapy = crypto
                 .decrypt(&row.therapy_status_enc, encryption_salt)
                 .unwrap_or_default();
-            serde_json
-                ::to_string(
-                    &serde_json::json!({
+            serde_json::to_string(&serde_json::json!({
                 "risk_level": row.risk_level,
                 "baseline_stress": stress,
                 "baseline_anxiety": anxiety,
                 "baseline_depression": depression,
                 "therapy_status": therapy,
-            })
-                )
-                .unwrap_or_default()
+            }))
+            .unwrap_or_default()
         } else {
             "{}".to_string()
         };
 
-        // Call Gemini
         let ai_response = gemini
-            .analyze_mood_data(user_name, &mood_json, &baseline_json, period).await
+            .analyze_mood_data(user_name, &mood_json, &baseline_json, period)
+            .await
             .map_err(|e| AppError::InternalError(e.into()))?;
 
-        // Parse AI response
-        let ai_json: serde_json::Value = serde_json
-            ::from_str(&ai_response.trim())
-            .unwrap_or_else(|_| {
-                // Try to extract JSON from markdown code block
+        let ai_json: serde_json::Value =
+            serde_json::from_str(&ai_response.trim()).unwrap_or_else(|_| {
                 let cleaned = ai_response
                     .trim()
                     .trim_start_matches("```json")
                     .trim_start_matches("```")
                     .trim_end_matches("```")
                     .trim();
-                serde_json
-                    ::from_str(cleaned)
-                    .unwrap_or_else(
-                        |_|
-                            serde_json::json!({
-                "summary": ai_response,
-                "insights": "Unable to parse AI insights.",
-                "recommendations": "Please try again.",
-                "overall_mood_trend": "stable",
-                "risk_level": "low",
-                "avg_mood_score": 5.0
-            })
-                    )
+                serde_json::from_str(cleaned).unwrap_or_else(|_| {
+                    serde_json::json!({
+                        "summary": ai_response,
+                        "insights": "Unable to parse AI insights.",
+                        "recommendations": "Please try again.",
+                        "overall_mood_trend": "stable",
+                        "risk_level": "low",
+                        "avg_mood_score": 5.0
+                    })
+                })
             });
 
         let summary = ai_json["summary"].as_str().unwrap_or("").to_string();
         let insights = ai_json["insights"].as_str().unwrap_or("").to_string();
-        let recommendations = ai_json["recommendations"].as_str().unwrap_or("").to_string();
-        let mood_trend = ai_json["overall_mood_trend"].as_str().unwrap_or("stable").to_string();
+        let recommendations = ai_json["recommendations"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let mood_trend = ai_json["overall_mood_trend"]
+            .as_str()
+            .unwrap_or("stable")
+            .to_string();
         let risk_level = ai_json["risk_level"].as_str().unwrap_or("low").to_string();
         let avg_mood = ai_json["avg_mood_score"].as_f64().map(|v| v as f32);
 
@@ -141,35 +138,36 @@ impl AnalyticsService {
 
         let id = Uuid::new_v4().to_string();
 
-        sqlx
-            ::query(
-                r#"
+        sqlx::query(
+            r#"
             INSERT INTO mental_analytics_summaries
             (id, user_id, period_type, period_start, period_end, summary_enc, insights_enc,
              recommendations_enc, overall_mood_trend, avg_mood_score, risk_level, generated_by)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        "#
-            )
-            .bind(&id)
-            .bind(user_id)
-            .bind(period)
-            .bind(period_start)
-            .bind(period_end)
-            .bind(&summary_enc)
-            .bind(&insights_enc)
-            .bind(&recs_enc)
-            .bind(&mood_trend)
-            .bind(avg_mood)
-            .bind(&risk_level)
-            .bind(trigger)
-            .execute(pool).await
-            .map_err(AppError::DatabaseError)?;
+        "#,
+        )
+        .bind(&id)
+        .bind(user_id)
+        .bind(period)
+        .bind(period_start)
+        .bind(period_end)
+        .bind(&summary_enc)
+        .bind(&insights_enc)
+        .bind(&recs_enc)
+        .bind(&mood_trend)
+        .bind(avg_mood)
+        .bind(&risk_level)
+        .bind(trigger)
+        .execute(pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
 
-        let row: AnalyticsSummaryRow = sqlx
-            ::query_as("SELECT * FROM mental_analytics_summaries WHERE id = ?")
-            .bind(&id)
-            .fetch_one(pool).await
-            .map_err(AppError::DatabaseError)?;
+        let row: AnalyticsSummaryRow =
+            sqlx::query_as("SELECT * FROM mental_analytics_summaries WHERE id = ?")
+                .bind(&id)
+                .fetch_one(pool)
+                .await
+                .map_err(AppError::DatabaseError)?;
 
         Self::decrypt_row(crypto, &row, encryption_salt)
     }
@@ -180,19 +178,19 @@ impl AnalyticsService {
         crypto: &CryptoService,
         user_id: &str,
         encryption_salt: &str,
-        limit: i64
+        limit: i64,
     ) -> Result<Vec<AnalyticsSummaryResponse>> {
-        let rows: Vec<AnalyticsSummaryRow> = sqlx
-            ::query_as(
-                r#"SELECT * FROM mental_analytics_summaries
+        let rows: Vec<AnalyticsSummaryRow> = sqlx::query_as(
+            r#"SELECT * FROM mental_analytics_summaries
                WHERE user_id = ?
                ORDER BY created_at DESC
-               LIMIT ?"#
-            )
-            .bind(user_id)
-            .bind(limit)
-            .fetch_all(pool).await
-            .map_err(AppError::DatabaseError)?;
+               LIMIT ?"#,
+        )
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
 
         rows.iter()
             .map(|r| Self::decrypt_row(crypto, r, encryption_salt))
@@ -202,7 +200,7 @@ impl AnalyticsService {
     fn decrypt_row(
         crypto: &CryptoService,
         row: &AnalyticsSummaryRow,
-        salt: &str
+        salt: &str,
     ) -> Result<AnalyticsSummaryResponse> {
         Ok(AnalyticsSummaryResponse {
             id: row.id.clone(),
@@ -213,9 +211,10 @@ impl AnalyticsService {
             insights: crypto.decrypt(&row.insights_enc, salt)?,
             recommendations: crypto.decrypt(&row.recommendations_enc, salt)?,
             overall_mood_trend: row.overall_mood_trend.clone(),
-            avg_mood_score: row.avg_mood_score
+            avg_mood_score: row
+                .avg_mood_score
                 .as_ref()
-                .map(|d| { d.to_string().parse::<f32>().unwrap_or(0.0) }),
+                .map(|d| d.to_string().parse::<f32>().unwrap_or(0.0)),
             risk_level: row.risk_level.clone(),
             generated_by: row.generated_by.clone(),
             created_at: row.created_at.to_string(),

@@ -1,14 +1,8 @@
 use chrono::Utc;
-use jsonwebtoken::{ encode, EncodingKey, Header };
+use jsonwebtoken::{encode, EncodingKey, Header};
 use oauth2::{
-    basic::BasicClient,
-    AuthUrl,
-    AuthorizationCode,
-    ClientId,
-    ClientSecret,
-    RedirectUrl,
-    TokenResponse,
-    TokenUrl,
+    basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, RedirectUrl,
+    TokenResponse, TokenUrl,
 };
 use rand::Rng;
 use sqlx::MySqlPool;
@@ -17,8 +11,8 @@ use uuid::Uuid;
 use crate::{
     config::Config,
     crypto::CryptoService,
-    error::{ AppError, Result },
-    models::{ Claims, GoogleUserInfo, UserRow },
+    error::{AppError, Result},
+    models::{Claims, GoogleUserInfo, UserRow},
 };
 
 const GOOGLE_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -43,13 +37,14 @@ impl AuthService {
     pub async fn exchange_code(
         code: &str,
         config: &Config,
-        http: &reqwest::Client
+        http: &reqwest::Client,
     ) -> Result<GoogleUserInfo> {
         let client = Self::oauth_client(config)?;
 
         let token_result = client
             .exchange_code(AuthorizationCode::new(code.to_string()))
-            .request_async(oauth2::reqwest::async_http_client).await
+            .request_async(oauth2::reqwest::async_http_client)
+            .await
             .map_err(|e| AppError::BadRequest(format!("OAuth code exchange failed: {}", e)))?;
 
         let access_token = token_result.access_token().secret();
@@ -57,9 +52,11 @@ impl AuthService {
         let user_info: GoogleUserInfo = http
             .get(GOOGLE_USER_INFO_URL)
             .header("Authorization", format!("Bearer {}", access_token))
-            .send().await
+            .send()
+            .await
             .map_err(|e| AppError::InternalError(e.into()))?
-            .json().await
+            .json()
+            .await
             .map_err(|e| AppError::InternalError(e.into()))?;
 
         Ok(user_info)
@@ -69,43 +66,41 @@ impl AuthService {
     pub async fn find_or_create_user(
         pool: &MySqlPool,
         google_user: &GoogleUserInfo,
-        _crypto: &CryptoService
+        _crypto: &CryptoService,
     ) -> Result<(UserRow, bool)> {
-        // Try to find existing user
-        let existing: Option<UserRow> = sqlx
-            ::query_as("SELECT * FROM users WHERE email = ? OR google_id = ?")
-            .bind(&google_user.email)
-            .bind(&google_user.id)
-            .fetch_optional(pool).await
-            .map_err(|e| AppError::DatabaseError(e))?;
-
-        if let Some(user) = existing {
-            // Update google_id and avatar if changed
-            sqlx
-                ::query(
-                    "UPDATE users SET google_id = ?, avatar_url = ?, updated_at = NOW() WHERE id = ?"
-                )
+        let existing: Option<UserRow> =
+            sqlx::query_as("SELECT * FROM users WHERE email = ? OR google_id = ?")
+                .bind(&google_user.email)
                 .bind(&google_user.id)
-                .bind(&google_user.picture)
-                .bind(&user.id)
-                .execute(pool).await
+                .fetch_optional(pool)
+                .await
                 .map_err(|e| AppError::DatabaseError(e))?;
 
-            let updated: UserRow = sqlx
-                ::query_as("SELECT * FROM users WHERE id = ?")
+        if let Some(user) = existing {
+            sqlx::query(
+                "UPDATE users SET google_id = ?, avatar_url = ?, updated_at = NOW() WHERE id = ?",
+            )
+            .bind(&google_user.id)
+            .bind(&google_user.picture)
+            .bind(&user.id)
+            .execute(pool)
+            .await
+            .map_err(|e| AppError::DatabaseError(e))?;
+
+            let updated: UserRow = sqlx::query_as("SELECT * FROM users WHERE id = ?")
                 .bind(&user.id)
-                .fetch_one(pool).await
+                .fetch_one(pool)
+                .await
                 .map_err(|e| AppError::DatabaseError(e))?;
 
             return Ok((updated, false));
         }
 
-        // Create new user
         let id = Uuid::new_v4().to_string();
         let salt = CryptoService::generate_user_salt();
 
-        // Derive username from email prefix, ensure uniqueness
-        let base_username = google_user.email
+        let base_username = google_user
+            .email
             .split('@')
             .next()
             .unwrap_or("user")
@@ -136,10 +131,10 @@ impl AuthService {
             .execute(pool).await
             .map_err(|e| AppError::DatabaseError(e))?;
 
-        let new_user: UserRow = sqlx
-            ::query_as("SELECT * FROM users WHERE id = ?")
+        let new_user: UserRow = sqlx::query_as("SELECT * FROM users WHERE id = ?")
             .bind(&id)
-            .fetch_one(pool).await
+            .fetch_one(pool)
+            .await
             .map_err(|e| AppError::DatabaseError(e))?;
 
         Ok((new_user, true))
@@ -160,17 +155,19 @@ impl AuthService {
         encode(
             &Header::default(),
             &claims,
-            &EncodingKey::from_secret(config.jwt.secret.as_bytes())
-        ).map_err(|e| AppError::InternalError(e.into()))
+            &EncodingKey::from_secret(config.jwt.secret.as_bytes()),
+        )
+        .map_err(|e| AppError::InternalError(e.into()))
     }
 
     /// Verify the email verification token and mark user email as verified.
     pub async fn verify_email(pool: &MySqlPool, token: &str) -> Result<UserRow> {
-        let user: Option<UserRow> = sqlx
-            ::query_as("SELECT * FROM users WHERE email_verification_token = ?")
-            .bind(token)
-            .fetch_optional(pool).await
-            .map_err(|e| AppError::DatabaseError(e))?;
+        let user: Option<UserRow> =
+            sqlx::query_as("SELECT * FROM users WHERE email_verification_token = ?")
+                .bind(token)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| AppError::DatabaseError(e))?;
 
         let user = user.ok_or_else(|| AppError::BadRequest("Invalid verification token".into()))?;
 
@@ -178,25 +175,25 @@ impl AuthService {
             return Ok(user);
         }
 
-        sqlx
-            ::query(
-                r#"
+        sqlx::query(
+            r#"
             UPDATE users
             SET email_verification_status = 'verified',
                 email_verified_at = NOW(),
                 email_verification_token = NULL,
                 updated_at = NOW()
             WHERE id = ?
-            "#
-            )
-            .bind(&user.id)
-            .execute(pool).await
-            .map_err(|e| AppError::DatabaseError(e))?;
+            "#,
+        )
+        .bind(&user.id)
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e))?;
 
-        let updated: UserRow = sqlx
-            ::query_as("SELECT * FROM users WHERE id = ?")
+        let updated: UserRow = sqlx::query_as("SELECT * FROM users WHERE id = ?")
             .bind(&user.id)
-            .fetch_one(pool).await
+            .fetch_one(pool)
+            .await
             .map_err(|e| AppError::DatabaseError(e))?;
 
         Ok(updated)
@@ -220,10 +217,10 @@ impl AuthService {
         let mut candidate = base.to_string();
         let mut suffix = 1u32;
         loop {
-            let count: (i64,) = sqlx
-                ::query_as("SELECT COUNT(*) FROM users WHERE username = ?")
+            let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE username = ?")
                 .bind(&candidate)
-                .fetch_one(pool).await
+                .fetch_one(pool)
+                .await
                 .map_err(|e| AppError::DatabaseError(e))?;
             if count.0 == 0 {
                 return Ok(candidate);
@@ -239,21 +236,18 @@ impl AuthService {
             Some(ClientSecret::new(config.google_oauth.client_secret.clone())),
             AuthUrl::new(GOOGLE_AUTH_URL.into()).map_err(|e| AppError::InternalError(e.into()))?,
             Some(
-                TokenUrl::new(GOOGLE_TOKEN_URL.into()).map_err(|e|
-                    AppError::InternalError(e.into())
-                )?
-            )
+                TokenUrl::new(GOOGLE_TOKEN_URL.into())
+                    .map_err(|e| AppError::InternalError(e.into()))?,
+            ),
         )
-            .set_redirect_uri(
-                RedirectUrl::new(config.google_oauth.redirect_uri.clone()).map_err(|e|
-                    AppError::InternalError(e.into())
-                )?
-            )
-            .pipe_ok()
+        .set_redirect_uri(
+            RedirectUrl::new(config.google_oauth.redirect_uri.clone())
+                .map_err(|e| AppError::InternalError(e.into()))?,
+        )
+        .pipe_ok()
     }
 }
 
-// Helper trait to make builder return result uniformly
 trait PipeOk: Sized {
     fn pipe_ok(self) -> Result<Self> {
         Ok(self)

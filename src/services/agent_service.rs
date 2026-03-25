@@ -1,26 +1,17 @@
-use serde_json::{ json, Value };
+use serde_json::{json, Value};
 use sqlx::MySqlPool;
 
 use crate::{
     crypto::CryptoService,
-    error::{ AppError, Result },
+    error::{AppError, Result},
     models::chat::{
-        AgentResponse,
-        ChatMessageResponse,
-        ChatMessageRow,
-        ChatRow,
-        SendMessageRequest,
-        ToolCall,
-        ToolCallRequest,
-        ToolResult,
+        AgentResponse, ChatMessageResponse, ChatMessageRow, ChatRow, SendMessageRequest, ToolCall,
+        ToolCallRequest, ToolResult,
     },
     services::{
-        analytics_service::AnalyticsService,
-        chat_service::ChatService,
-        gemini_service::GeminiService,
-        note_service::NoteService,
+        analytics_service::AnalyticsService, chat_service::ChatService,
+        email_service::EmailService, gemini_service::GeminiService, note_service::NoteService,
         report_service::ReportService,
-        email_service::EmailService,
     },
 };
 
@@ -39,18 +30,18 @@ impl AgentService {
         user_email: &str,
         chat_id: &str,
         encryption_salt: &str,
-        req: &SendMessageRequest
+        req: &SendMessageRequest,
     ) -> Result<(ChatMessageResponse, ChatMessageResponse)> {
-        // Verify ownership and chat type
-        let chat: ChatRow = sqlx
-            ::query_as("SELECT * FROM chats WHERE id = ? AND user_id = ? AND chat_type = 'agentic'")
-            .bind(chat_id)
-            .bind(user_id)
-            .fetch_optional(pool).await
-            .map_err(AppError::DatabaseError)?
-            .ok_or_else(|| AppError::NotFound("Agentic chat not found".into()))?;
+        let chat: ChatRow = sqlx::query_as(
+            "SELECT * FROM chats WHERE id = ? AND user_id = ? AND chat_type = 'agentic'",
+        )
+        .bind(chat_id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .ok_or_else(|| AppError::NotFound("Agentic chat not found".into()))?;
 
-        // Save user message
         let severity = ChatService::detect_severity(&req.message);
         let user_msg = ChatService::save_message(
             pool,
@@ -62,20 +53,20 @@ impl AgentService {
             None,
             None,
             &severity,
-            encryption_salt
-        ).await?;
+            encryption_salt,
+        )
+        .await?;
 
-        // Load conversation history
-        let history_rows: Vec<ChatMessageRow> = sqlx
-            ::query_as(
-                r#"SELECT * FROM chat_messages
+        let history_rows: Vec<ChatMessageRow> = sqlx::query_as(
+            r#"SELECT * FROM chat_messages
                WHERE chat_id = ? AND user_id = ?
-               ORDER BY created_at DESC LIMIT 16"#
-            )
-            .bind(chat_id)
-            .bind(user_id)
-            .fetch_all(pool).await
-            .map_err(AppError::DatabaseError)?;
+               ORDER BY created_at DESC LIMIT 16"#,
+        )
+        .bind(chat_id)
+        .bind(user_id)
+        .fetch_all(pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
 
         let mut history: Vec<(String, String)> = history_rows
             .iter()
@@ -87,19 +78,17 @@ impl AgentService {
             })
             .collect();
 
-        // Pop the last user msg since we'll pass it as current message
         if history.last().map(|(r, _)| r.as_str()) == Some("user") {
             history.pop();
         }
 
         let system_prompt = Self::build_agent_system_prompt(user_name);
 
-        // First call — AI decides whether to use tools
         let ai_response = gemini
-            .generate_chat_response(&system_prompt, &history, &req.message, 1.0).await
+            .generate_chat_response(&system_prompt, &history, &req.message, 1.0)
+            .await
             .map_err(|e| AppError::InternalError(e.into()))?;
 
-        // Parse tool calls
         let (response_text, tool_calls, tool_results) = Self::parse_and_execute_tools(
             pool,
             crypto,
@@ -109,10 +98,10 @@ impl AgentService {
             user_name,
             user_email,
             encryption_salt,
-            &ai_response
-        ).await?;
+            &ai_response,
+        )
+        .await?;
 
-        // If there were tool calls, do a follow-up call for a natural response
         let final_response = if !tool_results.is_empty() {
             let tool_context: String = tool_results
                 .iter()
@@ -147,7 +136,6 @@ impl AgentService {
             response_text
         };
 
-        // Save assistant message with tool call data
         let tc_json = if !tool_calls.is_empty() {
             Some(serde_json::to_value(&tool_calls).unwrap_or(Value::Null))
         } else {
@@ -169,15 +157,16 @@ impl AgentService {
             tc_json.as_ref(),
             tr_json.as_ref(),
             "none",
-            encryption_salt
-        ).await?;
+            encryption_salt,
+        )
+        .await?;
 
-        // Update chat
         let new_count = chat.message_count + 2;
         sqlx::query("UPDATE chats SET message_count = ?, updated_at = NOW() WHERE id = ?")
             .bind(new_count)
             .bind(chat_id)
-            .execute(pool).await
+            .execute(pool)
+            .await
             .ok();
 
         if chat.message_count == 0 {
@@ -185,7 +174,8 @@ impl AgentService {
                 sqlx::query("UPDATE chats SET title = ? WHERE id = ?")
                     .bind(&title)
                     .bind(chat_id)
-                    .execute(pool).await
+                    .execute(pool)
+                    .await
                     .ok();
             }
         }
@@ -202,12 +192,10 @@ impl AgentService {
         user_name: &str,
         user_email: &str,
         encryption_salt: &str,
-        ai_response: &str
+        ai_response: &str,
     ) -> Result<(String, Vec<ToolCall>, Vec<ToolResult>)> {
-        // Try to parse as JSON with tool calls
         let parsed = serde_json::from_str::<AgentResponse>(ai_response.trim());
 
-        // Also try extracting JSON from markdown code block
         let parsed = parsed.or_else(|_| {
             let cleaned = ai_response
                 .trim()
@@ -235,8 +223,9 @@ impl AgentService {
                         user_name,
                         user_email,
                         encryption_salt,
-                        tc
-                    ).await;
+                        tc,
+                    )
+                    .await;
 
                     let (success, result_value) = match result {
                         Ok(v) => (true, v),
@@ -262,7 +251,6 @@ impl AgentService {
             return Ok((agent_resp.response, vec![], vec![]));
         }
 
-        // Plain text response — no tool calls
         Ok((ai_response.to_string(), vec![], vec![]))
     }
 
@@ -275,7 +263,7 @@ impl AgentService {
         user_name: &str,
         user_email: &str,
         encryption_salt: &str,
-        tool_call: &ToolCallRequest
+        tool_call: &ToolCallRequest,
     ) -> std::result::Result<Value, AppError> {
         match tool_call.tool_name.to_uppercase().as_str() {
             "GET_MOOD_ENTRIES" | "GET_MOOD_LOGS" => {
@@ -284,8 +272,9 @@ impl AgentService {
                     crypto,
                     user_id,
                     encryption_salt,
-                    &tool_call.parameters
-                ).await
+                    &tool_call.parameters,
+                )
+                .await
             }
             "GET_ANALYTICS" | "GET_ANALYTICS_SUMMARY" => {
                 Self::tool_get_analytics(
@@ -293,8 +282,9 @@ impl AgentService {
                     crypto,
                     user_id,
                     encryption_salt,
-                    &tool_call.parameters
-                ).await
+                    &tool_call.parameters,
+                )
+                .await
             }
             "GENERATE_ANALYTICS" => {
                 Self::tool_generate_analytics(
@@ -304,8 +294,9 @@ impl AgentService {
                     user_id,
                     user_name,
                     encryption_salt,
-                    &tool_call.parameters
-                ).await
+                    &tool_call.parameters,
+                )
+                .await
             }
             "GET_NOTES" | "GET_COPING_NOTES" => {
                 Self::tool_get_notes(
@@ -313,8 +304,9 @@ impl AgentService {
                     crypto,
                     user_id,
                     encryption_salt,
-                    &tool_call.parameters
-                ).await
+                    &tool_call.parameters,
+                )
+                .await
             }
             "GET_REPORTS" => {
                 Self::tool_get_reports(
@@ -322,8 +314,9 @@ impl AgentService {
                     crypto,
                     user_id,
                     encryption_salt,
-                    &tool_call.parameters
-                ).await
+                    &tool_call.parameters,
+                )
+                .await
             }
             "GENERATE_REPORT" => {
                 Self::tool_generate_report(
@@ -335,8 +328,9 @@ impl AgentService {
                     user_name,
                     user_email,
                     encryption_salt,
-                    &tool_call.parameters
-                ).await
+                    &tool_call.parameters,
+                )
+                .await
             }
             "GET_BASELINE" | "GET_MENTAL_PROFILE" => {
                 Self::tool_get_baseline(pool, crypto, user_id, encryption_salt).await
@@ -347,8 +341,9 @@ impl AgentService {
                     crypto,
                     user_id,
                     encryption_salt,
-                    &tool_call.parameters
-                ).await
+                    &tool_call.parameters,
+                )
+                .await
             }
             "UPDATE_NOTE" | "EDIT_NOTE" => {
                 Self::tool_update_note(
@@ -356,8 +351,9 @@ impl AgentService {
                     crypto,
                     user_id,
                     encryption_salt,
-                    &tool_call.parameters
-                ).await
+                    &tool_call.parameters,
+                )
+                .await
             }
             "DELETE_NOTE" | "REMOVE_NOTE" => {
                 Self::tool_delete_note(pool, user_id, &tool_call.parameters).await
@@ -370,10 +366,14 @@ impl AgentService {
                     user_id,
                     user_name,
                     encryption_salt,
-                    &tool_call.parameters
-                ).await
+                    &tool_call.parameters,
+                )
+                .await
             }
-            _ => Err(AppError::BadRequest(format!("Unknown tool: {}", tool_call.tool_name))),
+            _ => Err(AppError::BadRequest(format!(
+                "Unknown tool: {}",
+                tool_call.tool_name
+            ))),
         }
     }
 
@@ -384,7 +384,7 @@ impl AgentService {
         crypto: &CryptoService,
         user_id: &str,
         encryption_salt: &str,
-        params: &Value
+        params: &Value,
     ) -> std::result::Result<Value, AppError> {
         let limit = params["limit"].as_i64().unwrap_or(14) as u32;
 
@@ -402,16 +402,15 @@ impl AgentService {
             encryption_salt,
             from,
             to,
-            Some(limit)
-        ).await?;
+            Some(limit),
+        )
+        .await?;
 
-        Ok(
-            json!({
+        Ok(json!({
             "success": true,
             "entries": entries,
             "count": entries.len()
-        })
-        )
+        }))
     }
 
     async fn tool_get_analytics(
@@ -419,25 +418,18 @@ impl AgentService {
         crypto: &CryptoService,
         user_id: &str,
         encryption_salt: &str,
-        params: &Value
+        params: &Value,
     ) -> std::result::Result<Value, AppError> {
         let limit = params["limit"].as_i64().unwrap_or(5);
 
-        let summaries = AnalyticsService::get_summaries(
-            pool,
-            crypto,
-            user_id,
-            encryption_salt,
-            limit
-        ).await?;
+        let summaries =
+            AnalyticsService::get_summaries(pool, crypto, user_id, encryption_salt, limit).await?;
 
-        Ok(
-            json!({
+        Ok(json!({
             "success": true,
             "summaries": summaries,
             "count": summaries.len()
-        })
-        )
+        }))
     }
 
     async fn tool_generate_analytics(
@@ -447,7 +439,7 @@ impl AgentService {
         user_id: &str,
         user_name: &str,
         encryption_salt: &str,
-        params: &Value
+        params: &Value,
     ) -> std::result::Result<Value, AppError> {
         let period = params["period"].as_str().unwrap_or("weekly");
 
@@ -459,8 +451,9 @@ impl AgentService {
             user_name,
             encryption_salt,
             period,
-            "agentic"
-        ).await?;
+            "agentic",
+        )
+        .await?;
 
         Ok(serde_json::to_value(&summary).unwrap_or(json!({"success": true})))
     }
@@ -470,27 +463,19 @@ impl AgentService {
         crypto: &CryptoService,
         user_id: &str,
         encryption_salt: &str,
-        params: &Value
+        params: &Value,
     ) -> std::result::Result<Value, AppError> {
         let label = params["label"].as_str();
         let limit = params["limit"].as_i64().unwrap_or(20);
 
-        let notes = NoteService::get_notes(
-            pool,
-            crypto,
-            user_id,
-            encryption_salt,
-            label,
-            limit
-        ).await?;
+        let notes =
+            NoteService::get_notes(pool, crypto, user_id, encryption_salt, label, limit).await?;
 
-        Ok(
-            json!({
+        Ok(json!({
             "success": true,
             "notes": notes,
             "count": notes.len()
-        })
-        )
+        }))
     }
 
     async fn tool_get_reports(
@@ -498,25 +483,18 @@ impl AgentService {
         crypto: &CryptoService,
         user_id: &str,
         encryption_salt: &str,
-        params: &Value
+        params: &Value,
     ) -> std::result::Result<Value, AppError> {
         let limit = params["limit"].as_i64().unwrap_or(5);
 
-        let reports = ReportService::get_reports(
-            pool,
-            crypto,
-            user_id,
-            encryption_salt,
-            limit
-        ).await?;
+        let reports =
+            ReportService::get_reports(pool, crypto, user_id, encryption_salt, limit).await?;
 
-        Ok(
-            json!({
+        Ok(json!({
             "success": true,
             "reports": reports,
             "count": reports.len()
-        })
-        )
+        }))
     }
 
     async fn tool_generate_report(
@@ -528,7 +506,7 @@ impl AgentService {
         user_name: &str,
         user_email: &str,
         encryption_salt: &str,
-        params: &Value
+        params: &Value,
     ) -> std::result::Result<Value, AppError> {
         let req = crate::models::mental::GenerateReportRequest {
             report_type: params["report_type"].as_str().map(String::from),
@@ -547,8 +525,9 @@ impl AgentService {
             user_email,
             encryption_salt,
             &req,
-            "agentic"
-        ).await?;
+            "agentic",
+        )
+        .await?;
 
         Ok(serde_json::to_value(&report).unwrap_or(json!({"success": true})))
     }
@@ -557,14 +536,15 @@ impl AgentService {
         pool: &MySqlPool,
         crypto: &CryptoService,
         user_id: &str,
-        encryption_salt: &str
+        encryption_salt: &str,
     ) -> std::result::Result<Value, AppError> {
         let baseline = crate::services::onboarding_service::OnboardingService::get_baseline(
             pool,
             crypto,
             user_id,
-            encryption_salt
-        ).await?;
+            encryption_salt,
+        )
+        .await?;
 
         Ok(serde_json::to_value(&baseline).unwrap_or(json!({"success": true})))
     }
@@ -576,9 +556,12 @@ impl AgentService {
         crypto: &CryptoService,
         user_id: &str,
         encryption_salt: &str,
-        params: &Value
+        params: &Value,
     ) -> std::result::Result<Value, AppError> {
-        let title = params["title"].as_str().unwrap_or("Untitled Note").to_string();
+        let title = params["title"]
+            .as_str()
+            .unwrap_or("Untitled Note")
+            .to_string();
         let content = params["content"]
             .as_str()
             .ok_or_else(|| AppError::BadRequest("CREATE_NOTE requires 'content' parameter".into()))?
@@ -595,13 +578,11 @@ impl AgentService {
 
         let note = NoteService::create_note(pool, crypto, user_id, encryption_salt, &req).await?;
 
-        Ok(
-            json!({
+        Ok(json!({
             "success": true,
             "note": note,
             "message": "Note created successfully"
-        })
-        )
+        }))
     }
 
     async fn tool_update_note(
@@ -609,13 +590,11 @@ impl AgentService {
         crypto: &CryptoService,
         user_id: &str,
         encryption_salt: &str,
-        params: &Value
+        params: &Value,
     ) -> std::result::Result<Value, AppError> {
-        let note_id = params["note_id"]
-            .as_str()
-            .ok_or_else(||
-                AppError::BadRequest("UPDATE_NOTE requires 'note_id' parameter".into())
-            )?;
+        let note_id = params["note_id"].as_str().ok_or_else(|| {
+            AppError::BadRequest("UPDATE_NOTE requires 'note_id' parameter".into())
+        })?;
 
         let req = crate::models::note::UpdateNoteRequest {
             title: params["title"].as_str().map(String::from),
@@ -624,43 +603,31 @@ impl AgentService {
             is_pinned: params["is_pinned"].as_bool(),
         };
 
-        let note = NoteService::update_note(
-            pool,
-            crypto,
-            user_id,
-            note_id,
-            encryption_salt,
-            &req
-        ).await?;
+        let note =
+            NoteService::update_note(pool, crypto, user_id, note_id, encryption_salt, &req).await?;
 
-        Ok(
-            json!({
+        Ok(json!({
             "success": true,
             "note": note,
             "message": "Note updated successfully"
-        })
-        )
+        }))
     }
 
     async fn tool_delete_note(
         pool: &MySqlPool,
         user_id: &str,
-        params: &Value
+        params: &Value,
     ) -> std::result::Result<Value, AppError> {
-        let note_id = params["note_id"]
-            .as_str()
-            .ok_or_else(||
-                AppError::BadRequest("DELETE_NOTE requires 'note_id' parameter".into())
-            )?;
+        let note_id = params["note_id"].as_str().ok_or_else(|| {
+            AppError::BadRequest("DELETE_NOTE requires 'note_id' parameter".into())
+        })?;
 
         NoteService::delete_note(pool, user_id, note_id).await?;
 
-        Ok(
-            json!({
+        Ok(json!({
             "success": true,
             "message": "Note deleted successfully"
-        })
-        )
+        }))
     }
 
     // ── Coping Strategy Suggestion Tool ──────────────────────
@@ -672,36 +639,39 @@ impl AgentService {
         user_id: &str,
         user_name: &str,
         encryption_salt: &str,
-        params: &Value
+        params: &Value,
     ) -> std::result::Result<Value, AppError> {
         let context = params["context"].as_str().unwrap_or("general wellness");
         let save_as_notes = params["save_as_notes"].as_bool().unwrap_or(false);
         let label = params["label"].as_str().unwrap_or("coping");
 
-        // Gather user's recent mood data for context
-        let entries = crate::services::mood_service::MoodService
-            ::get_mood_entries(pool, crypto, user_id, encryption_salt, None, None, Some(14)).await
-            .unwrap_or_default();
-
-        // Gather existing notes to avoid duplicates
-        let existing_notes = NoteService::get_notes(
+        let entries = crate::services::mood_service::MoodService::get_mood_entries(
             pool,
             crypto,
             user_id,
             encryption_salt,
-            Some("coping"),
-            20
-        ).await.unwrap_or_default();
+            None,
+            None,
+            Some(14),
+        )
+        .await
+        .unwrap_or_default();
 
-        let existing_titles: Vec<String> = existing_notes
-            .iter()
-            .map(|n| n.title.clone())
-            .collect();
+        let existing_notes =
+            NoteService::get_notes(pool, crypto, user_id, encryption_salt, Some("coping"), 20)
+                .await
+                .unwrap_or_default();
 
-        // Gather baseline if available
-        let baseline = crate::services::onboarding_service::OnboardingService
-            ::get_baseline(pool, crypto, user_id, encryption_salt).await
-            .ok();
+        let existing_titles: Vec<String> = existing_notes.iter().map(|n| n.title.clone()).collect();
+
+        let baseline = crate::services::onboarding_service::OnboardingService::get_baseline(
+            pool,
+            crypto,
+            user_id,
+            encryption_salt,
+        )
+        .await
+        .ok();
 
         let prompt = format!(
             r#"Generate personalized coping strategies for user "{name}".
@@ -748,7 +718,6 @@ Be practical, empathetic, and evidence-based. Return ONLY valid JSON."#,
             ).await
             .map_err(|e| AppError::InternalError(e.into()))?;
 
-        // Parse AI response
         let parsed = Self::parse_strategies_json(&ai_raw)?;
         let strategies = parsed["strategies"].as_array();
 
@@ -772,17 +741,14 @@ Be practical, empathetic, and evidence-based. Return ONLY valid JSON."#,
                         is_pinned: Some(false),
                     };
 
-                    match
-                        NoteService::create_note(pool, crypto, user_id, encryption_salt, &req).await
+                    match NoteService::create_note(pool, crypto, user_id, encryption_salt, &req)
+                        .await
                     {
-                        Ok(note) =>
-                            saved_notes.push(
-                                json!({
+                        Ok(note) => saved_notes.push(json!({
                             "id": note.id,
                             "title": note.title,
                             "label": note.label,
-                        })
-                            ),
+                        })),
                         Err(e) => {
                             tracing::warn!("Failed to save coping note: {:?}", e);
                         }
@@ -791,15 +757,13 @@ Be practical, empathetic, and evidence-based. Return ONLY valid JSON."#,
             }
         }
 
-        Ok(
-            json!({
+        Ok(json!({
             "success": true,
             "strategies": parsed["strategies"],
             "saved_as_notes": save_as_notes,
             "saved_notes": saved_notes,
             "count": strategies.map(|s| s.len()).unwrap_or(0)
-        })
-        )
+        }))
     }
 
     fn parse_strategies_json(raw: &str) -> std::result::Result<Value, AppError> {
@@ -813,7 +777,11 @@ Be practical, empathetic, and evidence-based. Return ONLY valid JSON."#,
             .trim_end_matches("```")
             .trim();
         serde_json::from_str::<Value>(cleaned).map_err(|e| {
-            tracing::error!("Failed to parse coping strategies JSON: {}. Raw: {}", e, raw);
+            tracing::error!(
+                "Failed to parse coping strategies JSON: {}. Raw: {}",
+                e,
+                raw
+            );
             AppError::InternalError(anyhow::anyhow!("Failed to parse AI coping strategies"))
         })
     }

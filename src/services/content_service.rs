@@ -2,13 +2,9 @@ use sqlx::MySqlPool;
 use uuid::Uuid;
 
 use crate::{
-    error::{ AppError, Result },
+    error::{AppError, Result},
     models::content::{
-        ContentRow,
-        ContentResponse,
-        ContentListItem,
-        CreateContentRequest,
-        UpdateContentRequest,
+        ContentListItem, ContentResponse, ContentRow, CreateContentRequest, UpdateContentRequest,
     },
 };
 
@@ -20,7 +16,7 @@ impl ContentService {
         pool: &MySqlPool,
         author_id: &str,
         req: &CreateContentRequest,
-        image_base_url: &str
+        image_base_url: &str,
     ) -> Result<ContentResponse> {
         if req.title.trim().is_empty() {
             return Err(AppError::ValidationError("Title cannot be empty".into()));
@@ -35,17 +31,21 @@ impl ContentService {
         let id = Uuid::new_v4().to_string();
         let slug = Self::generate_slug(&req.title);
 
-        // Ensure slug uniqueness
         let slug = Self::ensure_unique_slug(pool, &slug).await?;
 
-        let published_at = if status == "published" { "NOW()" } else { "NULL" };
+        let published_at = if status == "published" {
+            "NOW()"
+        } else {
+            "NULL"
+        };
 
-        let query =
-            format!(r#"INSERT INTO contents (id, author_id, title, slug, body, excerpt, status, published_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, {})"#, published_at);
+        let query = format!(
+            r#"INSERT INTO contents (id, author_id, title, slug, body, excerpt, status, published_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, {})"#,
+            published_at
+        );
 
-        sqlx
-            ::query(&query)
+        sqlx::query(&query)
             .bind(&id)
             .bind(author_id)
             .bind(req.title.trim())
@@ -53,13 +53,14 @@ impl ContentService {
             .bind(req.body.trim())
             .bind(req.excerpt.as_deref().map(str::trim))
             .bind(status)
-            .execute(pool).await
+            .execute(pool)
+            .await
             .map_err(AppError::DatabaseError)?;
 
-        let row: ContentRow = sqlx
-            ::query_as("SELECT * FROM contents WHERE id = ?")
+        let row: ContentRow = sqlx::query_as("SELECT * FROM contents WHERE id = ?")
             .bind(&id)
-            .fetch_one(pool).await
+            .fetch_one(pool)
+            .await
             .map_err(AppError::DatabaseError)?;
 
         Ok(row.to_response(image_base_url))
@@ -71,37 +72,40 @@ impl ContentService {
         is_admin: bool,
         limit: i64,
         offset: i64,
-        image_base_url: &str
+        image_base_url: &str,
     ) -> Result<(Vec<ContentListItem>, i64)> {
         let (rows, total): (Vec<ContentRow>, (i64,)) = if is_admin {
-            let rows: Vec<ContentRow> = sqlx
-                ::query_as(r#"SELECT * FROM contents ORDER BY created_at DESC LIMIT ? OFFSET ?"#)
-                .bind(limit)
-                .bind(offset)
-                .fetch_all(pool).await
-                .map_err(AppError::DatabaseError)?;
+            let rows: Vec<ContentRow> = sqlx::query_as(
+                r#"SELECT * FROM contents ORDER BY created_at DESC LIMIT ? OFFSET ?"#,
+            )
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(pool)
+            .await
+            .map_err(AppError::DatabaseError)?;
 
-            let total: (i64,) = sqlx
-                ::query_as("SELECT COUNT(*) FROM contents")
-                .fetch_one(pool).await
+            let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM contents")
+                .fetch_one(pool)
+                .await
                 .map_err(AppError::DatabaseError)?;
 
             (rows, total)
         } else {
-            let rows: Vec<ContentRow> = sqlx
-                ::query_as(
-                    r#"SELECT * FROM contents WHERE status = 'published'
-                   ORDER BY published_at DESC LIMIT ? OFFSET ?"#
-                )
-                .bind(limit)
-                .bind(offset)
-                .fetch_all(pool).await
-                .map_err(AppError::DatabaseError)?;
+            let rows: Vec<ContentRow> = sqlx::query_as(
+                r#"SELECT * FROM contents WHERE status = 'published'
+                   ORDER BY published_at DESC LIMIT ? OFFSET ?"#,
+            )
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(pool)
+            .await
+            .map_err(AppError::DatabaseError)?;
 
-            let total: (i64,) = sqlx
-                ::query_as("SELECT COUNT(*) FROM contents WHERE status = 'published'")
-                .fetch_one(pool).await
-                .map_err(AppError::DatabaseError)?;
+            let total: (i64,) =
+                sqlx::query_as("SELECT COUNT(*) FROM contents WHERE status = 'published'")
+                    .fetch_one(pool)
+                    .await
+                    .map_err(AppError::DatabaseError)?;
 
             (rows, total)
         };
@@ -118,23 +122,22 @@ impl ContentService {
         pool: &MySqlPool,
         content_id: &str,
         is_admin: bool,
-        image_base_url: &str
+        image_base_url: &str,
     ) -> Result<ContentResponse> {
-        let row: ContentRow = (
-            if is_admin {
-                sqlx
-                    ::query_as("SELECT * FROM contents WHERE id = ?")
-                    .bind(content_id)
-                    .fetch_optional(pool).await
-                    .map_err(AppError::DatabaseError)?
-            } else {
-                sqlx
-                    ::query_as("SELECT * FROM contents WHERE id = ? AND status = 'published'")
-                    .bind(content_id)
-                    .fetch_optional(pool).await
-                    .map_err(AppError::DatabaseError)?
-            }
-        ).ok_or_else(|| AppError::NotFound("Content not found".into()))?;
+        let row: ContentRow = (if is_admin {
+            sqlx::query_as("SELECT * FROM contents WHERE id = ?")
+                .bind(content_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(AppError::DatabaseError)?
+        } else {
+            sqlx::query_as("SELECT * FROM contents WHERE id = ? AND status = 'published'")
+                .bind(content_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(AppError::DatabaseError)?
+        })
+        .ok_or_else(|| AppError::NotFound("Content not found".into()))?;
 
         Ok(row.to_response(image_base_url))
     }
@@ -144,23 +147,22 @@ impl ContentService {
         pool: &MySqlPool,
         slug: &str,
         is_admin: bool,
-        image_base_url: &str
+        image_base_url: &str,
     ) -> Result<ContentResponse> {
-        let row: ContentRow = (
-            if is_admin {
-                sqlx
-                    ::query_as("SELECT * FROM contents WHERE slug = ?")
-                    .bind(slug)
-                    .fetch_optional(pool).await
-                    .map_err(AppError::DatabaseError)?
-            } else {
-                sqlx
-                    ::query_as("SELECT * FROM contents WHERE slug = ? AND status = 'published'")
-                    .bind(slug)
-                    .fetch_optional(pool).await
-                    .map_err(AppError::DatabaseError)?
-            }
-        ).ok_or_else(|| AppError::NotFound("Content not found".into()))?;
+        let row: ContentRow = (if is_admin {
+            sqlx::query_as("SELECT * FROM contents WHERE slug = ?")
+                .bind(slug)
+                .fetch_optional(pool)
+                .await
+                .map_err(AppError::DatabaseError)?
+        } else {
+            sqlx::query_as("SELECT * FROM contents WHERE slug = ? AND status = 'published'")
+                .bind(slug)
+                .fetch_optional(pool)
+                .await
+                .map_err(AppError::DatabaseError)?
+        })
+        .ok_or_else(|| AppError::NotFound("Content not found".into()))?;
 
         Ok(row.to_response(image_base_url))
     }
@@ -170,13 +172,12 @@ impl ContentService {
         pool: &MySqlPool,
         content_id: &str,
         req: &UpdateContentRequest,
-        image_base_url: &str
+        image_base_url: &str,
     ) -> Result<ContentResponse> {
-        // Verify content exists
-        let existing: ContentRow = sqlx
-            ::query_as("SELECT * FROM contents WHERE id = ?")
+        let existing: ContentRow = sqlx::query_as("SELECT * FROM contents WHERE id = ?")
             .bind(content_id)
-            .fetch_optional(pool).await
+            .fetch_optional(pool)
+            .await
             .map_err(AppError::DatabaseError)?
             .ok_or_else(|| AppError::NotFound("Content not found".into()))?;
 
@@ -189,7 +190,6 @@ impl ContentService {
         let excerpt = req.excerpt.as_deref().or(existing.excerpt.as_deref());
         let status = req.status.as_deref().unwrap_or(&existing.status);
 
-        // Update slug if title changed
         let slug = if req.title.is_some() {
             let new_slug = Self::generate_slug(title);
             if new_slug != existing.slug {
@@ -201,43 +201,42 @@ impl ContentService {
             existing.slug.clone()
         };
 
-        // Handle published_at: set to NOW() when transitioning to published
         let set_published = status == "published" && existing.published_at.is_none();
 
         if set_published {
-            sqlx
-                ::query(
-                    r#"UPDATE contents SET title = ?, slug = ?, body = ?, excerpt = ?, status = ?,
-                   published_at = NOW(), updated_at = NOW() WHERE id = ?"#
-                )
-                .bind(title.trim())
-                .bind(&slug)
-                .bind(body.trim())
-                .bind(excerpt.map(str::trim))
-                .bind(status)
-                .bind(content_id)
-                .execute(pool).await
-                .map_err(AppError::DatabaseError)?;
+            sqlx::query(
+                r#"UPDATE contents SET title = ?, slug = ?, body = ?, excerpt = ?, status = ?,
+                   published_at = NOW(), updated_at = NOW() WHERE id = ?"#,
+            )
+            .bind(title.trim())
+            .bind(&slug)
+            .bind(body.trim())
+            .bind(excerpt.map(str::trim))
+            .bind(status)
+            .bind(content_id)
+            .execute(pool)
+            .await
+            .map_err(AppError::DatabaseError)?;
         } else {
-            sqlx
-                ::query(
-                    r#"UPDATE contents SET title = ?, slug = ?, body = ?, excerpt = ?, status = ?,
-                   updated_at = NOW() WHERE id = ?"#
-                )
-                .bind(title.trim())
-                .bind(&slug)
-                .bind(body.trim())
-                .bind(excerpt.map(str::trim))
-                .bind(status)
-                .bind(content_id)
-                .execute(pool).await
-                .map_err(AppError::DatabaseError)?;
+            sqlx::query(
+                r#"UPDATE contents SET title = ?, slug = ?, body = ?, excerpt = ?, status = ?,
+                   updated_at = NOW() WHERE id = ?"#,
+            )
+            .bind(title.trim())
+            .bind(&slug)
+            .bind(body.trim())
+            .bind(excerpt.map(str::trim))
+            .bind(status)
+            .bind(content_id)
+            .execute(pool)
+            .await
+            .map_err(AppError::DatabaseError)?;
         }
 
-        let row: ContentRow = sqlx
-            ::query_as("SELECT * FROM contents WHERE id = ?")
+        let row: ContentRow = sqlx::query_as("SELECT * FROM contents WHERE id = ?")
             .bind(content_id)
-            .fetch_one(pool).await
+            .fetch_one(pool)
+            .await
             .map_err(AppError::DatabaseError)?;
 
         Ok(row.to_response(image_base_url))
@@ -248,19 +247,19 @@ impl ContentService {
         pool: &MySqlPool,
         content_id: &str,
         filename: &str,
-        image_base_url: &str
+        image_base_url: &str,
     ) -> Result<ContentResponse> {
-        sqlx
-            ::query("UPDATE contents SET cover_image = ?, updated_at = NOW() WHERE id = ?")
+        sqlx::query("UPDATE contents SET cover_image = ?, updated_at = NOW() WHERE id = ?")
             .bind(filename)
             .bind(content_id)
-            .execute(pool).await
+            .execute(pool)
+            .await
             .map_err(AppError::DatabaseError)?;
 
-        let row: ContentRow = sqlx
-            ::query_as("SELECT * FROM contents WHERE id = ?")
+        let row: ContentRow = sqlx::query_as("SELECT * FROM contents WHERE id = ?")
             .bind(content_id)
-            .fetch_one(pool).await
+            .fetch_one(pool)
+            .await
             .map_err(AppError::DatabaseError)?;
 
         Ok(row.to_response(image_base_url))
@@ -268,10 +267,10 @@ impl ContentService {
 
     /// Delete a content entry (admin only).
     pub async fn delete_content(pool: &MySqlPool, content_id: &str) -> Result<()> {
-        let result = sqlx
-            ::query("DELETE FROM contents WHERE id = ?")
+        let result = sqlx::query("DELETE FROM contents WHERE id = ?")
             .bind(content_id)
-            .execute(pool).await
+            .execute(pool)
+            .await
             .map_err(AppError::DatabaseError)?;
 
         if result.rows_affected() == 0 {
@@ -308,10 +307,10 @@ impl ContentService {
         let mut candidate = base.to_string();
         let mut suffix = 1u32;
         loop {
-            let count: (i64,) = sqlx
-                ::query_as("SELECT COUNT(*) FROM contents WHERE slug = ?")
+            let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM contents WHERE slug = ?")
                 .bind(&candidate)
-                .fetch_one(pool).await
+                .fetch_one(pool)
+                .await
                 .map_err(AppError::DatabaseError)?;
             if count.0 == 0 {
                 return Ok(candidate);
@@ -325,17 +324,18 @@ impl ContentService {
     async fn ensure_unique_slug_excluding(
         pool: &MySqlPool,
         base: &str,
-        exclude_id: &str
+        exclude_id: &str,
     ) -> Result<String> {
         let mut candidate = base.to_string();
         let mut suffix = 1u32;
         loop {
-            let count: (i64,) = sqlx
-                ::query_as("SELECT COUNT(*) FROM contents WHERE slug = ? AND id != ?")
-                .bind(&candidate)
-                .bind(exclude_id)
-                .fetch_one(pool).await
-                .map_err(AppError::DatabaseError)?;
+            let count: (i64,) =
+                sqlx::query_as("SELECT COUNT(*) FROM contents WHERE slug = ? AND id != ?")
+                    .bind(&candidate)
+                    .bind(exclude_id)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(AppError::DatabaseError)?;
             if count.0 == 0 {
                 return Ok(candidate);
             }
@@ -347,12 +347,9 @@ impl ContentService {
     fn validate_status(status: &str) -> Result<()> {
         match status {
             "draft" | "published" | "archived" => Ok(()),
-            _ =>
-                Err(
-                    AppError::ValidationError(
-                        "Status must be 'draft', 'published', or 'archived'".into()
-                    )
-                ),
+            _ => Err(AppError::ValidationError(
+                "Status must be 'draft', 'published', or 'archived'".into(),
+            )),
         }
     }
 }
