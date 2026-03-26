@@ -54,7 +54,7 @@ async fn run_migration_sql(pool: &MySqlPool, sql: &str) -> Result<(), anyhow::Er
                 tracing::warn!("Migration statement failed: {}", e);
                 e
             })
-            .ok(); // IF NOT EXISTS handles duplicates; ok() tolerates "already exists"
+            .ok();
     }
     Ok(())
 }

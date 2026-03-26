@@ -6,7 +6,6 @@ use bsdy_api::crypto::CryptoService;
 use bsdy_api::services::email_service::EmailService;
 use bsdy_api::services::gemini_service::GeminiService;
 
-/// Load .env from the project root (CARGO_MANIFEST_DIR) regardless of CWD.
 pub fn load_env() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let env_path = std::path::Path::new(manifest_dir).join(".env");
@@ -18,7 +17,6 @@ pub const TEST_MASTER_KEY: &str =
     "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
 
 /// Build a test Config with all required fields set to sensible test defaults.
-/// No real external services will be contacted with these values.
 pub fn test_config() -> Config {
     Config {
         app: AppConfig {
@@ -70,7 +68,6 @@ pub fn test_config() -> Config {
     }
 }
 
-/// Return the database URL from env or a sensible test default.
 pub fn test_database_url() -> String {
     std::env
         ::var("TEST_DATABASE_URL")
@@ -81,19 +78,14 @@ pub fn test_database_url() -> String {
         })
 }
 
-/// Create a CryptoService with the test master key.
 pub fn test_crypto() -> CryptoService {
     CryptoService::new(TEST_MASTER_KEY).expect("test crypto init")
 }
 
-/// Create a GeminiService pointed at a wiremock server URL.
 pub fn test_gemini(_base_url: &str) -> GeminiService {
-    // We create a service whose API key doesn't matter —
-    // requests will be intercepted by wiremock.
-    GeminiService::new("fake-key".into(), "gemini-test".into())
+            GeminiService::new("fake-key".into(), "gemini-test".into())
 }
 
-/// Create an EmailService with localhost SMTP (won't connect unless tested).
 pub fn test_email() -> EmailService {
     let brevo = BrevoConfig {
         smtp_host: "localhost".into(),

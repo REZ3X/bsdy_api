@@ -39,7 +39,6 @@ async fn health_check(State(state): State<AppState>) -> Json<Value> {
         .map(|r| r.status().is_success())
         .unwrap_or(false);
 
-    // Overall status
     let all_ok = db_ok && gemini_ok && smtp_ok && google_ok;
 
     Json(

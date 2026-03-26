@@ -81,7 +81,6 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Wait for Ctrl+C or SIGTERM for graceful shutdown.
 async fn shutdown_signal() {
     let ctrl_c = async {
         tokio::signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");

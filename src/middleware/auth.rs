@@ -16,7 +16,6 @@ impl<S> FromRequestParts<S> for AuthUser where AppState: FromRef<S>, S: Send + S
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let app_state = AppState::from_ref(state);
 
-        // Extract token from Authorization header
         let auth_header = parts.headers
             .get("Authorization")
             .and_then(|v| v.to_str().ok())
@@ -26,7 +25,6 @@ impl<S> FromRequestParts<S> for AuthUser where AppState: FromRef<S>, S: Send + S
             .strip_prefix("Bearer ")
             .ok_or_else(|| AppError::Unauthorized("Invalid Authorization header format".into()))?;
 
-        // Decode & validate JWT
         let token_data = decode::<Claims>(
             token,
             &DecodingKey::from_secret(app_state.config.jwt.secret.as_bytes()),
@@ -38,7 +36,6 @@ impl<S> FromRequestParts<S> for AuthUser where AppState: FromRef<S>, S: Send + S
 
         let claims = token_data.claims;
 
-        // Fetch user from database
         let user: UserRow = sqlx
             ::query_as("SELECT * FROM users WHERE id = ?")
             .bind(&claims.sub)
