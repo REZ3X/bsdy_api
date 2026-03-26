@@ -287,7 +287,7 @@ Expected response:
   "success": true,
   "status": "healthy",
   "service": "bsdy-api",
-  "version": "0.4.5",
+  "version": "0.5.0",
   "checks": {
     "database": "connected",
     "gemini_api": "reachable",
